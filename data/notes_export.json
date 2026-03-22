@@ -1411,6 +1411,14 @@
     {
       "key": "rss_daily_auto_enabled",
       "value": "0"
+    },
+    {
+      "key": "rss_feeds",
+      "value": "https://feeds.reuters.com/reuters/businessNews\nhttps://feeds.reuters.com/reuters/worldNews\nhttps://www.cnbc.com/id/100003114/device/rss/rss.html\nhttps://www.cnbc.com/id/19854910/device/rss/rss.html\nhttps://feeds.a.dj.com/rss/RSSMarketsMain.xml\nhttps://feeds.bbci.co.uk/news/business/rss.xml\nhttps://rsshub.app/reuters/world-news?lang=zh\nhttps://rsshub.app/reuters/business-news?lang=zh\nhttps://www.zaobao.com/realtime/china/rss.xml\nhttps://www.zaobao.com/realtime/world/rss.xml"
+    },
+    {
+      "key": "rss_keywords",
+      "value": "美伊戰爭, 以伊戰爭, 中東衝突, 荷姆茲海峽"
     }
   ]
 }
