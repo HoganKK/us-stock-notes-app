@@ -2,6 +2,31 @@
 
 Build an Excel for US listed stocks, excluding ADRs (rule-based), with major-sector + AI small-tag classification.
 
+## Version Snapshot (recommended before every update)
+Run this before changing any version (`v2.1`, `v2.2`, `v2.3`, `v2.4`, ...):
+
+```powershell
+cd E:\VScode\my_python_project\stock_fetcher
+.\version_snapshot.ps1 -Version "v2.4" -Note "before v2.5 changes"
+```
+
+This creates:
+- a git tag: `backup/<version>-<timestamp>`
+- a local backup folder under `backups\`
+- a zip backup under `backups\`
+
+To push snapshot tag to GitHub:
+
+```powershell
+git push origin --tags
+```
+
+To restore core app files from a snapshot tag:
+
+```powershell
+git checkout backup/v2.4-YYYYMMDD-HHMMSS -- streamlit_app.py notes_store.py rss_ingest.py ai_event_theme.py data_loader.py github_sync.py requirements.txt README.md monthly_update.ps1
+```
+
 ## What it does
 - Pulls symbol universe from Nasdaq Trader:
   - `nasdaqlisted.txt`
