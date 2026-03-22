@@ -23,6 +23,10 @@ def _parse_csv(s: str) -> list[str]:
     return [x.strip() for x in str(s or "").split("|") if x.strip()]
 
 
+def _canon_text(s: str) -> str:
+    return str(s or "").strip().lower()
+
+
 def get_conn(db_path: Path = DB_PATH) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
@@ -454,8 +458,27 @@ def list_event_theme_hits(
         sql += " AND h.ticker = ?"
         params.append(ticker.strip().upper())
     if theme_keyword:
-        sql += " AND h.theme LIKE ?"
-        params.append(f"%{theme_keyword.strip()}%")
+        kw = str(theme_keyword).strip()
+        aliases = [kw]
+        # include canonical aliases from rules (raw/canonical both directions)
+        with closing(get_conn(db_path)) as conn:
+            rules = conn.execute(
+                "SELECT raw_theme, canonical_theme FROM theme_canonical_rules WHERE enabled=1"
+            ).fetchall()
+        low = _canon_text(kw)
+        for r in rules:
+            raw = str(r["raw_theme"] or "").strip()
+            can = str(r["canonical_theme"] or "").strip()
+            if not raw or not can:
+                continue
+            if _canon_text(raw) == low:
+                aliases.append(can)
+            if _canon_text(can) == low:
+                aliases.append(raw)
+        aliases = sorted(set([x for x in aliases if x]))
+        if aliases:
+            sql += " AND (" + " OR ".join(["h.theme LIKE ?"] * len(aliases)) + ")"
+            params.extend([f"%{x}%" for x in aliases])
     sql += " ORDER BY m.note_date DESC, h.confidence DESC, h.id DESC"
     with closing(get_conn(db_path)) as conn:
         rows = conn.execute(sql, params).fetchall()
@@ -472,6 +495,95 @@ def list_themes_summary(db_path: Path = DB_PATH) -> list[dict[str, Any]]:
     with closing(get_conn(db_path)) as conn:
         rows = conn.execute(sql).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_themes_ranked(db_path: Path = DB_PATH) -> list[dict[str, Any]]:
+    """
+    Theme heat ranking with:
+    - alias merge using theme_canonical_rules
+    - score = confidence * recency_weight
+      where recency_weight = max(0.2, 1.0 - days_since_note/14)
+    """
+    with closing(get_conn(db_path)) as conn:
+        hit_rows = conn.execute(
+            """
+            SELECT h.theme, h.ticker, h.confidence, h.impact, m.note_date
+            FROM event_theme_hits h
+            LEFT JOIN macro_notes m ON m.id = h.note_id
+            """
+        ).fetchall()
+        rules = conn.execute(
+            "SELECT raw_theme, canonical_theme FROM theme_canonical_rules WHERE enabled=1"
+        ).fetchall()
+
+    rule_map: dict[str, str] = {}
+    for r in rules:
+        raw = str(r["raw_theme"] or "").strip()
+        can = str(r["canonical_theme"] or "").strip()
+        if raw and can:
+            rule_map[_canon_text(raw)] = can
+
+    grouped: dict[str, dict[str, Any]] = {}
+    now = datetime.now()
+    for r in hit_rows:
+        theme_raw = str(r["theme"] or "").strip()
+        if not theme_raw:
+            continue
+        theme = rule_map.get(_canon_text(theme_raw), theme_raw)
+
+        note_date = str(r["note_date"] or "")[:10]
+        days = 14.0
+        try:
+            d = datetime.strptime(note_date, "%Y-%m-%d")
+            days = max(0.0, (now - d).days)
+        except Exception:
+            days = 14.0
+        recency_weight = max(0.2, 1.0 - (days / 14.0))
+        conf = float(r["confidence"] or 0.5)
+        score = conf * recency_weight
+
+        g = grouped.setdefault(
+            theme,
+            {
+                "theme": theme,
+                "stock_set": set(),
+                "hit_count": 0,
+                "score": 0.0,
+                "recent_date": note_date,
+                "bull_count": 0,
+                "bear_count": 0,
+                "neutral_count": 0,
+            },
+        )
+        g["stock_set"].add(str(r["ticker"] or "").upper())
+        g["hit_count"] += 1
+        g["score"] += score
+        if note_date and (not g["recent_date"] or note_date > g["recent_date"]):
+            g["recent_date"] = note_date
+        impact = str(r["impact"] or "")
+        if "利多" in impact:
+            g["bull_count"] += 1
+        elif "利空" in impact:
+            g["bear_count"] += 1
+        else:
+            g["neutral_count"] += 1
+
+    out = []
+    for v in grouped.values():
+        out.append(
+            {
+                "theme": v["theme"],
+                "stock_count": len(v["stock_set"]),
+                "hit_count": int(v["hit_count"]),
+                "heat_score": round(float(v["score"]), 4),
+                "recent_date": v["recent_date"],
+                "bull_count": int(v["bull_count"]),
+                "bear_count": int(v["bear_count"]),
+                "neutral_count": int(v["neutral_count"]),
+            }
+        )
+    out.sort(key=lambda x: (x["heat_score"], x["stock_count"], x["hit_count"]), reverse=True)
+    return out
 
 
 def list_keyword_synonyms(db_path: Path = DB_PATH) -> list[dict[str, Any]]:
@@ -689,4 +801,3 @@ def export_json_text(db_path: Path = DB_PATH) -> str:
 def import_json_text(text: str, db_path: Path = DB_PATH, replace: bool = True) -> None:
     payload = json.loads(text)
     import_all_from_dict(payload, db_path=db_path, replace=replace)
-
