@@ -85,10 +85,10 @@ def _theme_rule_map() -> dict[str, str]:
     return m
 
 
-def _suggest_keyword_expansions_ai(term: str, current_expanded: list[str]) -> list[str]:
+def _suggest_keyword_expansions_ai(term: str, current_expanded: list[str]) -> tuple[list[str], str]:
     api_key = st.secrets.get("KIMI_API_KEY", "") or st.secrets.get("OPENAI_API_KEY", "")
     if not api_key:
-        return []
+        return [], "缺少 KIMI_API_KEY / OPENAI_API_KEY（Streamlit secrets）"
     base_url = st.secrets.get("KIMI_BASE_URL", "https://api.kimi.com/coding/v1")
     model = st.secrets.get("KIMI_MODEL", "kimi-for-coding")
     client = OpenAI(api_key=api_key, base_url=base_url)
@@ -112,7 +112,7 @@ def _suggest_keyword_expansions_ai(term: str, current_expanded: list[str]) -> li
             text = m.group(0)
         arr = json.loads(text)
         if not isinstance(arr, list):
-            return []
+            return [], "模型未回傳 JSON 陣列格式"
         out = []
         seen = set(x.lower() for x in current_expanded)
         for x in arr:
@@ -123,9 +123,9 @@ def _suggest_keyword_expansions_ai(term: str, current_expanded: list[str]) -> li
                 continue
             seen.add(sx.lower())
             out.append(sx)
-        return out[:20]
-    except Exception:
-        return []
+        return out[:20], ""
+    except Exception as e:
+        return [], f"{type(e).__name__}: {str(e)[:220]}"
 
 
 def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
@@ -336,16 +336,19 @@ def main() -> None:
                 st.warning(f"未映射關鍵字：{', '.join(unmapped)}")
                 if st.button("AI 補全未映射關鍵字並寫入字典", key="btn_ai_expand_unmapped"):
                     added = 0
+                    last_err = ""
                     for uk in unmapped[:10]:
-                        sug = _suggest_keyword_expansions_ai(uk, expanded)
+                        sug, err = _suggest_keyword_expansions_ai(uk, expanded)
                         if sug:
                             upsert_keyword_synonym(uk, sug, True)
                             added += 1
+                        elif err:
+                            last_err = err
                     if added > 0:
                         st.success(f"已補全 {added} 個關鍵字，請再按一次『抓取 RSS』。")
                         st.rerun()
                     else:
-                        st.info("目前無法補全（可能未設 API key，或模型暫時未回應）。")
+                        st.error(f"目前無法補全：{last_err or '模型未回傳可用結果'}")
 
             compact = st.checkbox("精簡顯示（每詞只顯示前 3 個）", value=True, key="kw_compact_view")
             for kx, vals in kmap.items():
