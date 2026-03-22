@@ -184,6 +184,11 @@ Notes:
   - event theme labels (e.g. SpaceX概念股 / 腦機接口 / 地緣衝突供應鏈)
   - impacted stock list with impact direction/confidence/reason
 - A new `時事主題` tab is provided for theme-centric browsing.
+- RSS v2:
+  - In `時事事件筆記`, use `RSS v2 新聞匯入`
+  - Input keywords + feeds, click `抓取 RSS`
+  - Select articles and click `匯入選中新聞`
+  - Optionally enable `匯入後自動 AI 映射`
 
 ## Monthly one-click update (PowerShell)
 Use:

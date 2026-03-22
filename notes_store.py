@@ -314,6 +314,26 @@ def list_macro_notes(
     return out
 
 
+def macro_note_exists(event_title: str, source_url: str = "", db_path: Path = DB_PATH) -> bool:
+    title = str(event_title or "").strip()
+    url = str(source_url or "").strip()
+    if not title:
+        return False
+    with closing(get_conn(db_path)) as conn:
+        if url:
+            row = conn.execute(
+                "SELECT 1 FROM macro_notes WHERE source_url = ? LIMIT 1",
+                (url,),
+            ).fetchone()
+            if row:
+                return True
+        row2 = conn.execute(
+            "SELECT 1 FROM macro_notes WHERE event_title = ? LIMIT 1",
+            (title,),
+        ).fetchone()
+        return bool(row2)
+
+
 def list_related_macro_notes(
     ticker: str,
     sector: str,
