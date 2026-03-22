@@ -61,22 +61,73 @@ def _parse_tags(x: str) -> list[str]:
 
 
 def _filter_df(df: pd.DataFrame) -> pd.DataFrame:
-    key = st.sidebar.text_input("關鍵字搜尋（代號/公司/簡介/子板塊/標籤）", value="")
+    # Persist filter state explicitly so reruns won't reset selections.
+    if "flt_keyword" not in st.session_state:
+        st.session_state["flt_keyword"] = ""
+    if "flt_sectors" not in st.session_state:
+        st.session_state["flt_sectors"] = []
+    if "flt_subsectors" not in st.session_state:
+        st.session_state["flt_subsectors"] = []
+    if "flt_exchanges" not in st.session_state:
+        st.session_state["flt_exchanges"] = []
+    if "flt_tags" not in st.session_state:
+        st.session_state["flt_tags"] = []
+    if "flt_tag_mode" not in st.session_state:
+        st.session_state["flt_tag_mode"] = "任一命中"
+
+    key = st.sidebar.text_input(
+        "關鍵字搜尋（代號/公司/簡介/子板塊/標籤）",
+        value=st.session_state["flt_keyword"],
+        key="flt_keyword",
+    )
+    if st.sidebar.button("清空全部篩選"):
+        st.session_state["flt_keyword"] = ""
+        st.session_state["flt_sectors"] = []
+        st.session_state["flt_subsectors"] = []
+        st.session_state["flt_exchanges"] = []
+        st.session_state["flt_tags"] = []
+        st.session_state["flt_tag_mode"] = "任一命中"
+        st.rerun()
     sectors = sorted([x for x in df["sector"].dropna().astype(str).unique().tolist() if x.strip()])
     subsectors = sorted([x for x in df["subsector"].dropna().astype(str).unique().tolist() if x.strip()])
     exchanges = sorted([x for x in df["exchange"].dropna().astype(str).unique().tolist() if x.strip()])
 
-    selected_sectors = st.sidebar.multiselect("大分類", sectors)
-    selected_subsectors = st.sidebar.multiselect("最終子分類", subsectors)
-    selected_exchanges = st.sidebar.multiselect("交易所", exchanges)
+    selected_sectors = st.sidebar.multiselect(
+        "大分類",
+        sectors,
+        default=[x for x in st.session_state["flt_sectors"] if x in sectors],
+        key="flt_sectors",
+    )
+    selected_subsectors = st.sidebar.multiselect(
+        "最終子分類",
+        subsectors,
+        default=[x for x in st.session_state["flt_subsectors"] if x in subsectors],
+        key="flt_subsectors",
+    )
+    selected_exchanges = st.sidebar.multiselect(
+        "交易所",
+        exchanges,
+        default=[x for x in st.session_state["flt_exchanges"] if x in exchanges],
+        key="flt_exchanges",
+    )
 
     all_tags = set()
     for tags in df["tags_list"].tolist():
         for t in tags:
             all_tags.add(t)
     tag_options = sorted(all_tags)
-    selected_tags = st.sidebar.multiselect("AI 小分類標籤", tag_options)
-    tag_mode = st.sidebar.radio("標籤匹配模式", ["任一命中", "全部命中"], horizontal=True)
+    selected_tags = st.sidebar.multiselect(
+        "AI 小分類標籤",
+        tag_options,
+        default=[x for x in st.session_state["flt_tags"] if x in tag_options],
+        key="flt_tags",
+    )
+    tag_mode = st.sidebar.radio(
+        "標籤匹配模式",
+        ["任一命中", "全部命中"],
+        horizontal=True,
+        key="flt_tag_mode",
+    )
 
     filtered = df.copy()
     if key.strip():
@@ -490,4 +541,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
