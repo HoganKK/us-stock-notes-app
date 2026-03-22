@@ -82,7 +82,21 @@ def _id_of(title: str, link: str) -> str:
     return hashlib.sha256(f"{title}|{link}".encode("utf-8")).hexdigest()[:16]
 
 
-def expand_keywords(keywords: list[str]) -> tuple[list[str], dict[str, list[str]]]:
+def expand_keywords(
+    keywords: list[str],
+    custom_synonyms: dict[str, list[str]] | None = None,
+) -> tuple[list[str], dict[str, list[str]]]:
+    syn_map = dict(KEYWORD_SYNONYMS)
+    if custom_synonyms:
+        for k, vals in custom_synonyms.items():
+            key = str(k or "").strip()
+            if not key:
+                continue
+            items = [str(x).strip() for x in (vals or []) if str(x).strip()]
+            if not items:
+                continue
+            syn_map[key] = sorted(set((syn_map.get(key, []) or []) + items))
+
     base = [k.strip().lower() for k in keywords if k and k.strip()]
     expanded = set(base)
     mapping: dict[str, list[str]] = {}
@@ -92,12 +106,12 @@ def expand_keywords(keywords: list[str]) -> tuple[list[str], dict[str, list[str]
             continue
         k = key.lower()
         extra = []
-        if key in KEYWORD_SYNONYMS:
-            extra.extend(KEYWORD_SYNONYMS[key])
-        if k in KEYWORD_SYNONYMS:
-            extra.extend(KEYWORD_SYNONYMS[k])
+        if key in syn_map:
+            extra.extend(syn_map[key])
+        if k in syn_map:
+            extra.extend(syn_map[k])
         # fuzzy trigger: if contains known key, append synonyms
-        for sk, vals in KEYWORD_SYNONYMS.items():
+        for sk, vals in syn_map.items():
             if sk.lower() in k or k in sk.lower():
                 extra.extend(vals)
         extra_norm = sorted({x.strip().lower() for x in extra if str(x).strip()})
@@ -138,10 +152,11 @@ def fetch_rss_items(
     feeds: list[str] | None = None,
     lookback_hours: int = 72,
     max_items: int = 80,
+    custom_synonyms: dict[str, list[str]] | None = None,
 ) -> list[RssItem]:
     feeds = feeds or DEFAULT_RSS_FEEDS
     kws = [k.strip().lower() for k in keywords if k and k.strip()]
-    expanded, _map = expand_keywords(keywords)
+    expanded, _map = expand_keywords(keywords, custom_synonyms=custom_synonyms)
     now = datetime.now(timezone.utc)
     cutoff = now.timestamp() - int(lookback_hours) * 3600
 
@@ -189,4 +204,3 @@ def fetch_rss_items(
 
     out.sort(key=lambda x: x.published_at, reverse=True)
     return out[: max(1, int(max_items))]
-
