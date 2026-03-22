@@ -96,6 +96,17 @@ def _title_sim(a: str, b: str) -> float:
     return len(sa & sb) / max(1, len(sa | sb))
 
 
+def _safe_df_rows(rows: list[dict], columns: list[str]) -> pd.DataFrame:
+    """Build a dataframe with guaranteed columns even when rows are empty."""
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    dfx = pd.DataFrame(rows)
+    for c in columns:
+        if c not in dfx.columns:
+            dfx[c] = ""
+    return dfx[columns]
+
+
 def main() -> None:
     init_db()
     if "bundle" not in st.session_state:
@@ -216,7 +227,11 @@ def main() -> None:
 
         st.subheader("現有時事事件")
         events = list_macro_notes()
-        st.dataframe(pd.DataFrame(events)[["id", "note_date", "impact", "event_title", "source_url"]], use_container_width=True, hide_index=True)
+        st.dataframe(
+            _safe_df_rows(events, ["id", "note_date", "impact", "event_title", "source_url"]),
+            use_container_width=True,
+            hide_index=True,
+        )
         if _is_editor() and events:
             eid = st.selectbox("選擇事件ID套用AI", [x["id"] for x in events])
             if st.button("對選中事件跑 AI 映射"):
@@ -235,7 +250,11 @@ def main() -> None:
         if rows:
             picked = st.selectbox("查看主題", [x["theme"] for x in rows])
             hits = list_event_theme_hits(theme_keyword=picked)
-            st.dataframe(pd.DataFrame(hits)[["ticker", "theme", "impact", "confidence", "reason", "note_date", "event_title"]], use_container_width=True, hide_index=True)
+            st.dataframe(
+                _safe_df_rows(hits, ["ticker", "theme", "impact", "confidence", "reason", "note_date", "event_title"]),
+                use_container_width=True,
+                hide_index=True,
+            )
 
     with tabs[3]:
         st.subheader("字典/規則")
@@ -248,7 +267,11 @@ def main() -> None:
                 st.rerun()
         kws = list_keyword_synonyms()
         if kws:
-            st.dataframe(pd.DataFrame(kws)[["keyword", "expansions", "enabled", "updated_at"]], use_container_width=True, hide_index=True)
+            st.dataframe(
+                _safe_df_rows(kws, ["keyword", "expansions", "enabled", "updated_at"]),
+                use_container_width=True,
+                hide_index=True,
+            )
             dk = st.selectbox("刪除關鍵字", [""] + [x["keyword"] for x in kws])
             if st.button("刪除關鍵字") and dk:
                 delete_keyword_synonym(dk)
@@ -263,7 +286,11 @@ def main() -> None:
                 st.rerun()
         rules = list_theme_rules()
         if rules:
-            st.dataframe(pd.DataFrame(rules)[["raw_theme", "canonical_theme", "enabled", "updated_at"]], use_container_width=True, hide_index=True)
+            st.dataframe(
+                _safe_df_rows(rules, ["raw_theme", "canonical_theme", "enabled", "updated_at"]),
+                use_container_width=True,
+                hide_index=True,
+            )
 
         cur = get_event_min_confidence()
         nv = st.slider("最小信心門檻", 0.0, 1.0, float(cur), 0.05)
@@ -296,4 +323,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
