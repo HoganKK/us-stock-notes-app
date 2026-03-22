@@ -49,6 +49,29 @@ def _is_editor() -> bool:
     return bool(st.session_state.get("editor_authed", False))
 
 
+def _get_llm_config() -> tuple[str, str, str]:
+    """
+    Priority:
+    1) OPENAI_* (for OpenAI-compatible providers like xiaoai)
+    2) KIMI_* (legacy compatibility)
+    """
+    openai_key = st.secrets.get("OPENAI_API_KEY", "")
+    kimi_key = st.secrets.get("KIMI_API_KEY", "")
+    api_key = openai_key or kimi_key
+
+    base_url = (
+        st.secrets.get("OPENAI_BASE_URL", "")
+        or st.secrets.get("KIMI_BASE_URL", "")
+        or "https://api.kimi.com/coding/v1"
+    )
+    model = (
+        st.secrets.get("OPENAI_MODEL", "")
+        or st.secrets.get("KIMI_MODEL", "")
+        or "kimi-for-coding"
+    )
+    return api_key, base_url, model
+
+
 def _safe_df_rows(rows: list[dict], columns: list[str]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=columns)
@@ -86,11 +109,9 @@ def _theme_rule_map() -> dict[str, str]:
 
 
 def _suggest_keyword_expansions_ai(term: str, current_expanded: list[str]) -> tuple[list[str], str]:
-    api_key = st.secrets.get("KIMI_API_KEY", "") or st.secrets.get("OPENAI_API_KEY", "")
+    api_key, base_url, model = _get_llm_config()
     if not api_key:
         return [], "缺少 KIMI_API_KEY / OPENAI_API_KEY（Streamlit secrets）"
-    base_url = st.secrets.get("KIMI_BASE_URL", "https://api.kimi.com/coding/v1")
-    model = st.secrets.get("KIMI_MODEL", "kimi-for-coding")
     client = OpenAI(api_key=api_key, base_url=base_url)
     prompt = (
         "你是金融新聞檢索助手。"
@@ -129,12 +150,9 @@ def _suggest_keyword_expansions_ai(term: str, current_expanded: list[str]) -> tu
 
 
 def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
-    api_key = st.secrets.get("KIMI_API_KEY", "") or st.secrets.get("OPENAI_API_KEY", "")
+    api_key, base_url, model = _get_llm_config()
     if not api_key:
         raise RuntimeError("缺少 KIMI_API_KEY 或 OPENAI_API_KEY（請到 Streamlit secrets 設定）")
-
-    base_url = st.secrets.get("KIMI_BASE_URL", "https://api.kimi.com/coding/v1")
-    model = st.secrets.get("KIMI_MODEL", "kimi-for-coding")
 
     rows = df[["ticker", "company_name", "sector", "subsector", "tags", "summary"]].to_dict("records")
     res = classify_event_impact(
