@@ -1409,6 +1409,10 @@
       "value": "0.55"
     },
     {
+      "key": "last_sync_to_github",
+      "value": "2026-03-22 16:03:00"
+    },
+    {
       "key": "rss_daily_auto_enabled",
       "value": "0"
     },
@@ -1418,7 +1422,7 @@
     },
     {
       "key": "rss_keywords",
-      "value": "美伊戰爭, 以伊戰爭, 中東衝突, 荷姆茲海峽"
+      "value": "美伊戰爭, 以伊戰爭, 中東衝突, 荷姆茲海峽，天然氣"
     }
   ]
 }
