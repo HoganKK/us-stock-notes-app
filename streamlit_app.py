@@ -105,6 +105,19 @@ def _theme_rule_map() -> dict[str, str]:
     return out
 
 
+def _sync_notes_to_github_now() -> tuple[bool, str]:
+    token = st.secrets.get("GITHUB_TOKEN", "")
+    repo = st.secrets.get("GITHUB_REPO", "")
+    branch = st.secrets.get("GITHUB_BRANCH", "main")
+    path = st.secrets.get("GITHUB_NOTES_PATH", "data/notes_export.json")
+    if not token or not repo:
+        return False, "缺少 GITHUB_TOKEN 或 GITHUB_REPO"
+    payload = export_json_text()
+    upsert_file_content(token, repo, path, branch, payload, f"Update notes backup {datetime.now():%Y-%m-%d %H:%M:%S}")
+    set_meta("last_sync_to_github", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    return True, "ok"
+
+
 PRECIOUS_ANCHORS = [
     "gold",
     "silver",
@@ -558,8 +571,23 @@ def main() -> None:
     with tabs[1]:
         st.subheader("RSS v2 新聞匯入")
         default_kw = "美伊戰爭, 以伊戰爭, 中東衝突, 荷姆茲海峽, 石油, 天然氣, 有色金屬, 化肥, spacex, 腦機接口, 量子, gtc"
-        kw_text = st.text_area("關鍵字（逗號分隔）", value=default_kw, key="rss_kw")
-        feeds_text = st.text_area("RSS feeds（每行一個）", value="\n".join(DEFAULT_RSS_FEEDS), height=120, key="rss_feeds")
+        saved_kw = get_meta("rss_keywords", default_kw)
+        saved_feeds = get_meta("rss_feeds", "\n".join(DEFAULT_RSS_FEEDS))
+        kw_text = st.text_area("關鍵字（逗號分隔）", value=saved_kw, key="rss_kw")
+        feeds_text = st.text_area("RSS feeds（每行一個）", value=saved_feeds, height=120, key="rss_feeds")
+        s1, s2 = st.columns(2)
+        if s1.button("保存 RSS 設定", key="btn_save_rss_cfg"):
+            set_meta("rss_keywords", kw_text.strip())
+            set_meta("rss_feeds", feeds_text.strip())
+            st.success("已保存 RSS 設定")
+        if s2.button("保存並同步到 GitHub", key="btn_save_rss_cfg_sync", disabled=not _is_editor()):
+            set_meta("rss_keywords", kw_text.strip())
+            set_meta("rss_feeds", feeds_text.strip())
+            ok, msg = _sync_notes_to_github_now()
+            if ok:
+                st.success("已保存並同步到 GitHub")
+            else:
+                st.error(f"同步失敗：{msg}")
         raw_keywords = [x.strip() for x in kw_text.split(",") if x.strip()]
         feeds = [x.strip() for x in feeds_text.splitlines() if x.strip()]
         lookback_for_refetch = int(st.session_state.get("rss_lookback", 48))
