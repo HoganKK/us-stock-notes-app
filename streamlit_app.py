@@ -17,6 +17,8 @@ from notes_store import (
     add_macro_note,
     add_stock_note,
     delete_keyword_synonym,
+    delete_event_theme_hits_by_theme,
+    clear_all_event_theme_hits,
     export_json_text,
     get_event_min_confidence,
     get_meta,
@@ -428,6 +430,25 @@ def _maybe_daily_auto_rss(raw_keywords: list[str], feeds: list[str], lookback: i
     return True, summary
 
 
+def _rebuild_all_theme_hits(df: pd.DataFrame) -> tuple[int, int]:
+    events = list_macro_notes()
+    if not events:
+        return 0, 0
+    bar = st.progress(0)
+    status = st.empty()
+    rebuilt_themes = 0
+    rebuilt_hits = 0
+    total = len(events)
+    for i, ev in enumerate(events, start=1):
+        status.info(f"重算事件 {i}/{total}: {str(ev.get('event_title',''))[:90]}")
+        tc, hc = _run_ai_for_event(ev, df)
+        rebuilt_themes += tc
+        rebuilt_hits += hc
+        bar.progress(min(100, int(i * 100 / total)))
+    status.success(f"重算完成：事件 {total} 筆，主題數累計 {rebuilt_themes}，命中累計 {rebuilt_hits}")
+    return rebuilt_themes, rebuilt_hits
+
+
 def main() -> None:
     init_db()
     if "bundle" not in st.session_state:
@@ -649,6 +670,19 @@ def main() -> None:
         )
         if rows:
             picked = st.selectbox("查看主題", [x["theme"] for x in rows])
+            if _is_editor():
+                c1, c2, c3 = st.columns(3)
+                if c1.button("清理選中主題命中", key="btn_clear_theme_hits"):
+                    n = delete_event_theme_hits_by_theme(picked)
+                    st.success(f"已清理主題 {picked} 的命中：{n} 筆")
+                    st.rerun()
+                if c2.button("清理全部主題命中", key="btn_clear_all_hits"):
+                    n = clear_all_event_theme_hits()
+                    st.success(f"已清理全部命中：{n} 筆")
+                    st.rerun()
+                if c3.button("重跑全部事件 AI", key="btn_rebuild_all_hits"):
+                    _rebuild_all_theme_hits(df)
+                    st.rerun()
             hits = list_event_theme_hits(theme_keyword=picked)
             st.dataframe(_safe_df_rows(hits, ["ticker", "theme", "impact", "confidence", "reason", "note_date", "event_title"]), use_container_width=True, hide_index=True)
 

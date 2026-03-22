@@ -586,6 +586,23 @@ def list_themes_ranked(db_path: Path = DB_PATH) -> list[dict[str, Any]]:
     return out
 
 
+def delete_event_theme_hits_by_theme(theme: str, db_path: Path = DB_PATH) -> int:
+    t = str(theme or "").strip()
+    if not t:
+        return 0
+    with closing(get_conn(db_path)) as conn:
+        cur = conn.execute("DELETE FROM event_theme_hits WHERE theme = ?", (t,))
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+
+def clear_all_event_theme_hits(db_path: Path = DB_PATH) -> int:
+    with closing(get_conn(db_path)) as conn:
+        cur = conn.execute("DELETE FROM event_theme_hits")
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+
 def list_keyword_synonyms(db_path: Path = DB_PATH) -> list[dict[str, Any]]:
     with closing(get_conn(db_path)) as conn:
         rows = conn.execute(
