@@ -30,7 +30,7 @@ from notes_store import (
     update_macro_note,
     update_stock_note,
 )
-from rss_ingest import DEFAULT_RSS_FEEDS, fetch_rss_items
+from rss_ingest import DEFAULT_RSS_FEEDS, expand_keywords, fetch_rss_items
 
 
 st.set_page_config(page_title="美股清單與筆記系統", page_icon="📈", layout="wide")
@@ -350,52 +350,75 @@ def _run_ai_for_event(event_row: dict, universe_df: pd.DataFrame) -> tuple[int, 
 
 
 def _render_rss_v2_panel(df: pd.DataFrame) -> None:
-    st.markdown("#### RSS v2 新聞匯入")
-    with st.expander("抓取 RSS 新聞 -> 匯入時事事件", expanded=False):
+    st.markdown("#### RSS v2 ????")
+    with st.expander("?? RSS ?? -> ??????", expanded=False):
         default_kw = (
-            "spacex, brain-computer interface, bci, quantum, gtc, nvidia, middle east, oil, gas, copper, fertilizer,"
-            " semiconductor, ai infrastructure, data center, defense, drone, satellite"
+            "????, ????, ????, ????, ??, ???, ????, ??, "
+            "spacex, ????, ??, gtc, nvidia, ai infrastructure, data center"
         )
-        kw_text = st.text_area("關鍵字（逗號分隔）", value=default_kw, key="rss_kw_text")
+        kw_text = st.text_area("?????????", value=default_kw, key="rss_kw_text")
         feeds_text = st.text_area(
-            "RSS feeds（每行一個，可自行增減）",
+            "RSS feeds????????????",
             value="\n".join(DEFAULT_RSS_FEEDS),
             key="rss_feeds_text",
             height=120,
         )
+
+        raw_keywords = [x.strip() for x in kw_text.split(",") if x.strip()]
+        expanded_keywords, kw_map = expand_keywords(raw_keywords)
+        st.caption(f"??????????{len(expanded_keywords)}")
+        if kw_map:
+            with st.container(border=True):
+                for k, vals in kw_map.items():
+                    if vals:
+                        st.caption(f"{k} -> {', '.join(vals[:12])}{' ...' if len(vals) > 12 else ''}")
+
         c1, c2, c3 = st.columns(3)
-        lookback = c1.number_input("回看小時", min_value=6, max_value=240, value=72, step=6, key="rss_lookback_h")
-        max_items = c2.number_input("最多新聞數", min_value=10, max_value=300, value=80, step=10, key="rss_max_items")
-        auto_ai = c3.checkbox("匯入後自動 AI 映射", value=True, key="rss_auto_ai")
+        lookback = c1.number_input("????", min_value=6, max_value=240, value=72, step=6, key="rss_lookback_h")
+        max_items = c2.number_input("?????", min_value=10, max_value=300, value=80, step=10, key="rss_max_items")
+        auto_ai = c3.checkbox("????? AI ??", value=True, key="rss_auto_ai")
 
         b1, b2 = st.columns(2)
-        fetch_clicked = b1.button("抓取 RSS", key="btn_rss_fetch", use_container_width=True)
-        import_clicked = b2.button("匯入選中新聞", key="btn_rss_import", use_container_width=True)
+        fetch_clicked = b1.button("?? RSS", key="btn_rss_fetch", use_container_width=True)
+        import_clicked = b2.button("??????", key="btn_rss_import", use_container_width=True)
 
         if fetch_clicked:
             try:
-                keywords = [x.strip() for x in kw_text.split(",") if x.strip()]
                 feeds = [x.strip() for x in feeds_text.splitlines() if x.strip()]
                 items = fetch_rss_items(
-                    keywords=keywords,
+                    keywords=raw_keywords,
                     feeds=feeds,
                     lookback_hours=int(lookback),
                     max_items=int(max_items),
                 )
                 st.session_state["rss_items"] = [x.__dict__ for x in items]
-                st.success(f"抓取完成：{len(items)} 條")
+                st.success(f"?????{len(items)} ?")
             except Exception as e:
-                st.error(f"抓取失敗：{e}")
+                st.error(f"?????{e}")
 
         rss_items = st.session_state.get("rss_items", [])
         if rss_items:
             rdf = pd.DataFrame(rss_items)
-            rdf_show = rdf[["published_at", "source", "title", "matched_keywords", "link"]].copy()
+            if "title_zh_tw" not in rdf.columns:
+                rdf["title_zh_tw"] = ""
+            rdf_show = rdf[["published_at", "source", "title", "title_zh_tw", "matched_keywords", "matched_expanded", "link"]].copy()
             rdf_show["matched_keywords"] = rdf_show["matched_keywords"].map(lambda x: ", ".join(x) if isinstance(x, list) else "")
+            rdf_show["matched_expanded"] = rdf_show["matched_expanded"].map(lambda x: ", ".join(x) if isinstance(x, list) else "")
             st.dataframe(rdf_show, use_container_width=True, hide_index=True)
-            pick_titles = rdf["title"].tolist()
+
+            search_q = st.text_input("????????????????", value="", key="rss_local_search")
+            rdf_sel = rdf.copy()
+            if search_q.strip():
+                q = search_q.strip().lower()
+                rdf_sel = rdf_sel[
+                    rdf_sel["title"].astype(str).str.lower().str.contains(q, na=False)
+                    | rdf_sel["title_zh_tw"].astype(str).str.lower().str.contains(q, na=False)
+                    | rdf_sel["summary"].astype(str).str.lower().str.contains(q, na=False)
+                ]
+
+            pick_titles = rdf_sel["title"].tolist()
             selected = st.multiselect(
-                "選擇要匯入的新聞（可多選）",
+                "?????????????",
                 options=pick_titles,
                 default=pick_titles[: min(25, len(pick_titles))],
                 key="rss_pick_titles",
@@ -405,39 +428,37 @@ def _render_rss_v2_panel(df: pd.DataFrame) -> None:
                 imported = 0
                 mapped = 0
                 skipped = 0
-                for _, r in rdf.iterrows():
+                for _, r in rdf_sel.iterrows():
                     if r["title"] not in selected:
                         continue
                     title = str(r.get("title", "")).strip()
+                    title_zh = str(r.get("title_zh_tw", "")).strip()
                     link = str(r.get("link", "")).strip()
                     summary = str(r.get("summary", "")).strip()
                     if macro_note_exists(event_title=title, source_url=link):
                         skipped += 1
                         continue
                     note_date = str(r.get("published_at", ""))[:10] or datetime.now().strftime("%Y-%m-%d")
+                    event_title = title if not title_zh else f"{title_zh} | {title}"
                     nid = add_macro_note(
                         note_date=note_date,
-                        event_title=title[:220],
+                        event_title=event_title[:220],
                         event_detail=summary[:4000],
                         affected_sectors=[],
                         affected_subsectors=[],
                         affected_tickers=[],
-                        impact="中性",
+                        impact="??",
                         source_url=link,
                     )
                     imported += 1
                     if auto_ai:
                         try:
-                            row = {
-                                "id": nid,
-                                "event_title": title,
-                                "event_detail": summary,
-                            }
+                            row = {"id": nid, "event_title": event_title, "event_detail": summary}
                             _theme_count, hits = _run_ai_for_event(row, df)
                             mapped += len(hits)
                         except Exception:
                             pass
-                st.success(f"匯入完成：新增 {imported}，略過重複 {skipped}，AI 命中 {mapped}")
+                st.success(f"??????? {imported}????? {skipped}?AI ?? {mapped}")
                 st.rerun()
 
 
