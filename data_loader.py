@@ -12,6 +12,7 @@ import pandas as pd
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
+
 DEFAULT_INPUT_CANDIDATES = [
     OUTPUT_DIR / "us_stocks_investable_themes_zh_tw_fast.xlsx",
     OUTPUT_DIR / "us_stocks_investable_themes.xlsx",
@@ -48,9 +49,8 @@ def resolve_default_input_path() -> Path:
         if p.exists():
             return p
     raise FileNotFoundError(
-        "No default Excel found under ./output. "
-        "Expected one of: "
-        + ", ".join(str(p.name) for p in DEFAULT_INPUT_CANDIDATES)
+        "No default Excel found under ./output. Expected one of: "
+        + ", ".join(x.name for x in DEFAULT_INPUT_CANDIDATES)
     )
 
 
@@ -108,11 +108,7 @@ def to_internal_schema(df: pd.DataFrame) -> pd.DataFrame:
 def load_bundle_from_path(path: Path) -> DataBundle:
     path = Path(path)
     if not path.exists():
-        # On Streamlit Cloud, local absolute Windows paths will not exist.
-        # Fall back to project-relative default candidates.
         path = resolve_default_input_path()
-    if not path.exists():
-        raise FileNotFoundError(f"Excel not found: {path}")
     content = path.read_bytes()
     xls = pd.ExcelFile(io.BytesIO(content))
     sheet = _pick_sheet(xls.sheet_names)
@@ -142,3 +138,4 @@ def load_bundle_from_upload(uploaded_file: Any) -> DataBundle:
         loaded_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         source_sheet=sheet,
     )
+

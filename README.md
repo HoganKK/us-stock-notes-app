@@ -169,6 +169,9 @@ GITHUB_TOKEN = "ghp_xxx"
 GITHUB_REPO = "yourname/yourrepo"
 GITHUB_BRANCH = "main"
 GITHUB_NOTES_PATH = "data/notes_export.json"
+KIMI_API_KEY = "sk-kimi-xxxx"
+KIMI_BASE_URL = "https://api.kimi.com/coding/v1"
+KIMI_MODEL = "kimi-for-coding"
 ```
 
 Notes:
@@ -177,3 +180,27 @@ Notes:
 - Click sync buttons in app:
   - `同步到 GitHub`: upload local notes JSON backup
   - `從 GitHub 還原`: restore notes from GitHub backup
+- In `時事事件筆記`, click `AI 套用到股票清單` to generate:
+  - event theme labels (e.g. SpaceX概念股 / 腦機接口 / 地緣衝突供應鏈)
+  - impacted stock list with impact direction/confidence/reason
+- A new `時事主題` tab is provided for theme-centric browsing.
+
+## Monthly one-click update (PowerShell)
+Use:
+- [monthly_update.ps1](E:/VScode/my_python_project/stock_fetcher/monthly_update.ps1)
+
+Run full pipeline:
+```powershell
+cd E:\VScode\my_python_project\stock_fetcher
+$env:KIMI_API_KEY="sk-xxxx"
+.\monthly_update.ps1
+```
+
+Optional:
+```powershell
+# Skip AI stage (requires existing us_stocks_subsectors_ai_zh_tw.xlsx)
+.\monthly_update.ps1 -SkipAI
+
+# Auto commit & push output files
+.\monthly_update.ps1 -PushToGit
+```

@@ -54,6 +54,17 @@ def init_db(db_path: Path = DB_PATH) -> None:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS event_theme_hits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                note_id INTEGER NOT NULL,
+                ticker TEXT NOT NULL,
+                theme TEXT NOT NULL,
+                impact TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 0.5,
+                reason TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
             """
         )
         conn.commit()
@@ -325,22 +336,89 @@ def list_related_macro_notes(
     return out
 
 
+def replace_event_theme_hits(note_id: int, rows: list[dict[str, Any]], db_path: Path = DB_PATH) -> None:
+    now = _now()
+    with closing(get_conn(db_path)) as conn:
+        conn.execute("DELETE FROM event_theme_hits WHERE note_id = ?", (int(note_id),))
+        for r in rows:
+            conn.execute(
+                """
+                INSERT INTO event_theme_hits(note_id, ticker, theme, impact, confidence, reason, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(note_id),
+                    str(r.get("ticker", "")).strip().upper(),
+                    str(r.get("theme", "")).strip(),
+                    str(r.get("impact", "中性")).strip() or "中性",
+                    float(r.get("confidence", 0.5) or 0.5),
+                    str(r.get("reason", "")).strip(),
+                    now,
+                ),
+            )
+        conn.commit()
+
+
+def list_event_theme_hits(
+    ticker: str | None = None,
+    theme_keyword: str | None = None,
+    db_path: Path = DB_PATH,
+) -> list[dict[str, Any]]:
+    sql = """
+    SELECT h.*, m.note_date, m.event_title, m.event_detail, m.source_url
+    FROM event_theme_hits h
+    LEFT JOIN macro_notes m ON m.id = h.note_id
+    WHERE 1=1
+    """
+    params: list[Any] = []
+    if ticker:
+        sql += " AND h.ticker = ?"
+        params.append(ticker.strip().upper())
+    if theme_keyword:
+        sql += " AND h.theme LIKE ?"
+        params.append(f"%{theme_keyword.strip()}%")
+    sql += " ORDER BY m.note_date DESC, h.confidence DESC, h.id DESC"
+    with closing(get_conn(db_path)) as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_themes_summary(db_path: Path = DB_PATH) -> list[dict[str, Any]]:
+    sql = """
+    SELECT theme, COUNT(DISTINCT ticker) AS stock_count, COUNT(*) AS hit_count
+    FROM event_theme_hits
+    GROUP BY theme
+    ORDER BY stock_count DESC, hit_count DESC, theme ASC
+    """
+    with closing(get_conn(db_path)) as conn:
+        rows = conn.execute(sql).fetchall()
+    return [dict(r) for r in rows]
+
+
 def export_all_as_dict(db_path: Path = DB_PATH) -> dict[str, Any]:
     with closing(get_conn(db_path)) as conn:
         stock_rows = [dict(r) for r in conn.execute("SELECT * FROM stock_notes ORDER BY id ASC").fetchall()]
         macro_rows = [dict(r) for r in conn.execute("SELECT * FROM macro_notes ORDER BY id ASC").fetchall()]
+        theme_rows = [dict(r) for r in conn.execute("SELECT * FROM event_theme_hits ORDER BY id ASC").fetchall()]
         meta_rows = [dict(r) for r in conn.execute("SELECT * FROM app_meta ORDER BY key ASC").fetchall()]
-    return {"stock_notes": stock_rows, "macro_notes": macro_rows, "app_meta": meta_rows}
+    return {
+        "stock_notes": stock_rows,
+        "macro_notes": macro_rows,
+        "event_theme_hits": theme_rows,
+        "app_meta": meta_rows,
+    }
 
 
 def import_all_from_dict(obj: dict[str, Any], db_path: Path = DB_PATH, replace: bool = True) -> None:
     stock_rows = obj.get("stock_notes", []) or []
     macro_rows = obj.get("macro_notes", []) or []
+    theme_rows = obj.get("event_theme_hits", []) or []
     meta_rows = obj.get("app_meta", []) or []
     with closing(get_conn(db_path)) as conn:
         if replace:
             conn.execute("DELETE FROM stock_notes")
             conn.execute("DELETE FROM macro_notes")
+            conn.execute("DELETE FROM event_theme_hits")
             conn.execute("DELETE FROM app_meta")
         for r in stock_rows:
             conn.execute(
@@ -380,6 +458,23 @@ def import_all_from_dict(obj: dict[str, Any], db_path: Path = DB_PATH, replace: 
                     r.get("source_url", ""),
                     r.get("created_at", _now()),
                     r.get("updated_at", _now()),
+                ),
+            )
+        for r in theme_rows:
+            conn.execute(
+                """
+                INSERT INTO event_theme_hits(id, note_id, ticker, theme, impact, confidence, reason, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    r.get("id"),
+                    int(r.get("note_id", 0) or 0),
+                    str(r.get("ticker", "")).upper(),
+                    str(r.get("theme", "")),
+                    str(r.get("impact", "中性")),
+                    float(r.get("confidence", 0.5) or 0.5),
+                    str(r.get("reason", "")),
+                    str(r.get("created_at", _now())),
                 ),
             )
         for r in meta_rows:

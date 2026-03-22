@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from ai_event_theme import classify_event_impact
 from data_loader import DEFAULT_INPUT_PATH, DataBundle, load_bundle_from_path, load_bundle_from_upload
 from github_sync import get_file_content, upsert_file_content
 from notes_store import (
@@ -18,16 +19,19 @@ from notes_store import (
     get_meta,
     import_json_text,
     init_db,
+    list_event_theme_hits,
     list_macro_notes,
     list_related_macro_notes,
     list_stock_notes,
+    list_themes_summary,
+    replace_event_theme_hits,
     set_meta,
     update_macro_note,
     update_stock_note,
 )
 
 
-st.set_page_config(page_title="美股清單與筆記", page_icon="📈", layout="wide")
+st.set_page_config(page_title="美股清單與筆記系統", page_icon="📈", layout="wide")
 
 
 @st.cache_data(show_spinner=False)
@@ -49,31 +53,26 @@ def _is_editor() -> bool:
     return bool(st.session_state.get("editor_authed", False))
 
 
-def _require_editor() -> bool:
-    if not _is_editor():
-        st.warning("此操作需要編輯權限。")
-        return False
-    return True
-
-
 def _parse_tags(x: str) -> list[str]:
     return [t.strip() for t in str(x or "").replace("、", "|").split("|") if t.strip()]
 
 
-def _filter_df(df: pd.DataFrame) -> pd.DataFrame:
-    # Applied filter state (stable across reruns)
+def _ensure_filter_state() -> None:
     defaults = {
         "flt_keyword": "",
         "flt_sectors": [],
         "flt_subsectors": [],
         "flt_exchanges": [],
         "flt_tags": [],
-        "flt_tag_mode": "????",
+        "flt_tag_mode": "任一命中",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
+
+def _filter_df(df: pd.DataFrame) -> pd.DataFrame:
+    _ensure_filter_state()
     sectors = sorted([x for x in df["sector"].dropna().astype(str).unique().tolist() if x.strip()])
     subsectors = sorted([x for x in df["subsector"].dropna().astype(str).unique().tolist() if x.strip()])
     exchanges = sorted([x for x in df["exchange"].dropna().astype(str).unique().tolist() if x.strip()])
@@ -84,51 +83,54 @@ def _filter_df(df: pd.DataFrame) -> pd.DataFrame:
             all_tags.add(t)
     tag_options = sorted(all_tags)
 
-    # Draft controls live inside a form; only Apply updates effective filters.
     with st.sidebar.form("filters_form", clear_on_submit=False):
         draft_keyword = st.text_input(
-            "????????/??/??/???/???",
+            "關鍵字搜尋（代號/公司/簡介/子板塊/標籤）",
             value=st.session_state["flt_keyword"],
             key="draft_flt_keyword",
         )
         draft_sectors = st.multiselect(
-            "???",
+            "大分類",
             sectors,
             default=[x for x in st.session_state["flt_sectors"] if x in sectors],
             key="draft_flt_sectors",
         )
         draft_subsectors = st.multiselect(
-            "?????",
+            "最終子分類",
             subsectors,
             default=[x for x in st.session_state["flt_subsectors"] if x in subsectors],
             key="draft_flt_subsectors",
         )
         draft_exchanges = st.multiselect(
-            "???",
+            "交易所",
             exchanges,
             default=[x for x in st.session_state["flt_exchanges"] if x in exchanges],
             key="draft_flt_exchanges",
         )
         draft_tags = st.multiselect(
-            "AI ?????",
+            "AI 小分類標籤",
             tag_options,
             default=[x for x in st.session_state["flt_tags"] if x in tag_options],
             key="draft_flt_tags",
         )
         draft_tag_mode = st.radio(
-            "??????",
-            ["????", "????"],
+            "標籤匹配模式",
+            ["任一命中", "全部命中"],
             horizontal=True,
-            index=0 if st.session_state["flt_tag_mode"] == "????" else 1,
+            index=0 if st.session_state["flt_tag_mode"] == "任一命中" else 1,
             key="draft_flt_tag_mode",
         )
         c1, c2 = st.columns(2)
-        apply_clicked = c1.form_submit_button("????", use_container_width=True)
-        clear_clicked = c2.form_submit_button("????", use_container_width=True)
+        apply_clicked = c1.form_submit_button("套用篩選", use_container_width=True, type="primary")
+        clear_clicked = c2.form_submit_button("清空篩選", use_container_width=True)
 
     if clear_clicked:
-        for k, v in defaults.items():
-            st.session_state[k] = v
+        st.session_state["flt_keyword"] = ""
+        st.session_state["flt_sectors"] = []
+        st.session_state["flt_subsectors"] = []
+        st.session_state["flt_exchanges"] = []
+        st.session_state["flt_tags"] = []
+        st.session_state["flt_tag_mode"] = "任一命中"
         st.rerun()
 
     if apply_clicked:
@@ -140,7 +142,6 @@ def _filter_df(df: pd.DataFrame) -> pd.DataFrame:
         st.session_state["flt_tag_mode"] = draft_tag_mode
         st.rerun()
 
-    # Apply currently active filters
     key = st.session_state["flt_keyword"]
     selected_sectors = st.session_state["flt_sectors"]
     selected_subsectors = st.session_state["flt_subsectors"]
@@ -159,12 +160,12 @@ def _filter_df(df: pd.DataFrame) -> pd.DataFrame:
     if selected_exchanges:
         filtered = filtered[filtered["exchange"].isin(selected_exchanges)]
     if selected_tags:
-        if tag_mode == "????":
+        if tag_mode == "任一命中":
             filtered = filtered[filtered["tags_list"].map(lambda xs: any(t in xs for t in selected_tags))]
         else:
             filtered = filtered[filtered["tags_list"].map(lambda xs: all(t in xs for t in selected_tags))]
 
-    st.sidebar.markdown(f"**??????{len(filtered):,}**")
+    st.sidebar.markdown(f"**篩選後筆數：{len(filtered):,}**")
     return filtered.reset_index(drop=True)
 
 
@@ -298,8 +299,25 @@ def _render_stock_notes_panel(ticker: str, sector: str, subsector: str) -> None:
 
     st.markdown("#### 關聯時事")
     macro = list_related_macro_notes(ticker=ticker, sector=sector, subsector=subsector)
-    st.caption(f"關聯時事：{len(macro)} 筆")
-    for m in macro[:80]:
+    theme_hits = list_event_theme_hits(ticker=ticker)
+    st.caption(f"關聯時事：{len(macro)} 筆 | 主題命中：{len(theme_hits)} 筆")
+
+    if theme_hits:
+        td = pd.DataFrame(theme_hits)[
+            ["note_date", "event_title", "theme", "impact", "confidence", "reason"]
+        ].rename(
+            columns={
+                "note_date": "日期",
+                "event_title": "事件",
+                "theme": "主題",
+                "impact": "方向",
+                "confidence": "信心",
+                "reason": "理由",
+            }
+        )
+        st.dataframe(td, use_container_width=True, hide_index=True)
+
+    for m in macro[:60]:
         with st.expander(f"[{m.get('note_date','')}] {m.get('impact','')} - {m.get('event_title','')}"):
             st.write(m.get("event_detail", ""))
             st.caption(
@@ -307,6 +325,26 @@ def _render_stock_notes_panel(ticker: str, sector: str, subsector: str) -> None:
             )
             if m.get("source_url"):
                 st.markdown(f"[來源連結]({m['source_url']})")
+
+
+def _run_ai_for_event(event_row: dict, universe_df: pd.DataFrame) -> tuple[int, list[dict]]:
+    api_key = st.secrets.get("KIMI_API_KEY", "") or st.secrets.get("OPENAI_API_KEY", "")
+    base_url = st.secrets.get("KIMI_BASE_URL", "https://api.kimi.com/coding/v1")
+    model = st.secrets.get("KIMI_MODEL", "kimi-for-coding")
+    if not api_key:
+        raise RuntimeError("Missing KIMI_API_KEY (or OPENAI_API_KEY) in Streamlit secrets.")
+
+    rows = universe_df[["ticker", "company_name", "sector", "subsector", "tags", "summary"]].to_dict("records")
+    res = classify_event_impact(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        event_title=str(event_row.get("event_title", "")),
+        event_detail=str(event_row.get("event_detail", "")),
+        universe_rows=rows,
+    )
+    replace_event_theme_hits(note_id=int(event_row["id"]), rows=res.hits)
+    return len(res.themes), res.hits
 
 
 def _render_macro_notes_page(df: pd.DataFrame) -> None:
@@ -334,7 +372,7 @@ def _render_macro_notes_page(df: pd.DataFrame) -> None:
             with st.form("add_macro_note"):
                 n_date = st.date_input("日期", value=date.today(), key="add_macro_date")
                 n_title = st.text_input("事件標題", key="add_macro_title")
-                n_detail = st.text_area("事件內容", key="add_macro_detail")
+                n_detail = st.text_area("事件內容（可貼新聞摘要）", key="add_macro_detail")
                 n_impact = st.selectbox("影響", ["利多", "利空", "中性"], key="add_macro_impact")
                 n_sectors = st.multiselect("影響大分類", sectors, key="add_macro_sectors")
                 n_subsectors = st.multiselect("影響子板塊", subsectors, key="add_macro_subsectors")
@@ -363,7 +401,18 @@ def _render_macro_notes_page(df: pd.DataFrame) -> None:
             )
             if m.get("source_url"):
                 st.markdown(f"[來源連結]({m['source_url']})")
+
             if _is_editor():
+                col_a, col_b = st.columns([2, 1])
+                if col_a.button("AI 套用到股票清單", key=f"ai_apply_{m['id']}"):
+                    try:
+                        with st.spinner("AI 分析中..."):
+                            theme_count, hits = _run_ai_for_event(m, df)
+                        st.success(f"已更新主題映射：{theme_count} 個主題，{len(hits)} 條股票命中。")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"AI 分析失敗：{e}")
+
                 with st.form(f"edit_macro_{m['id']}"):
                     e_date = st.text_input("日期", value=str(m.get("note_date", "")))
                     e_title = st.text_input("事件標題", value=str(m.get("event_title", "")))
@@ -400,6 +449,55 @@ def _render_macro_notes_page(df: pd.DataFrame) -> None:
                         st.rerun()
 
 
+def _render_themes_page(df: pd.DataFrame) -> None:
+    st.subheader("時事主題頁（AI 事件映射）")
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        q = st.text_input("搜尋主題（例：SpaceX、腦機接口、中東衝突）", value="", key="theme_search_q")
+    with c2:
+        impact_sel = st.selectbox("方向", ["全部", "利多", "利空", "中性"], key="theme_search_impact")
+
+    summaries = list_themes_summary()
+    if q.strip():
+        summaries = [x for x in summaries if q.strip().lower() in str(x.get("theme", "")).lower()]
+    if not summaries:
+        st.info("目前還沒有主題映射。請先到「時事事件筆記」建立事件並點「AI 套用到股票清單」。")
+        return
+
+    summary_df = pd.DataFrame(summaries).rename(
+        columns={"theme": "主題", "stock_count": "股票數", "hit_count": "命中數"}
+    )
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    picked = st.selectbox("查看主題明細", summary_df["主題"].tolist(), key="theme_pick")
+    rows = list_event_theme_hits(theme_keyword=picked)
+    if impact_sel != "全部":
+        rows = [r for r in rows if str(r.get("impact", "")) == impact_sel]
+
+    if not rows:
+        st.warning("此主題目前沒有符合條件的股票。")
+        return
+    d = pd.DataFrame(rows)[
+        ["ticker", "theme", "impact", "confidence", "reason", "note_date", "event_title", "source_url"]
+    ].rename(
+        columns={
+            "ticker": "代號",
+            "theme": "主題",
+            "impact": "方向",
+            "confidence": "信心",
+            "reason": "理由",
+            "note_date": "事件日期",
+            "event_title": "事件",
+            "source_url": "來源",
+        }
+    )
+    st.dataframe(d, use_container_width=True, hide_index=True)
+
+    tickers = sorted(set(d["代號"].tolist()))
+    if tickers:
+        st.caption(f"主題 `{picked}` 命中代號：{', '.join(tickers[:60])}" + (" ..." if len(tickers) > 60 else ""))
+
+
 def _render_sync_panel() -> None:
     st.subheader("備份與同步")
     st.caption(f"本地 DB：{DB_PATH}")
@@ -415,7 +513,6 @@ def _render_sync_panel() -> None:
     repo = st.secrets.get("GITHUB_REPO", "")
     branch = st.secrets.get("GITHUB_BRANCH", "main")
     path = st.secrets.get("GITHUB_NOTES_PATH", "data/notes_export.json")
-
     st.write(f"GitHub 目標：`{repo}` / `{branch}` / `{path}`")
     if not token or not repo:
         st.info("尚未設定 GitHub secrets（GITHUB_TOKEN, GITHUB_REPO）。")
@@ -423,34 +520,31 @@ def _render_sync_panel() -> None:
 
     c1, c2 = st.columns(2)
     if c1.button("同步到 GitHub", disabled=not _is_editor()):
-        if _require_editor():
-            try:
-                upsert_file_content(
-                    token=token,
-                    repo=repo,
-                    path=path,
-                    branch=branch,
-                    text=local_json,
-                    commit_message=f"Update notes backup {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                )
-                set_meta("last_sync_to_github", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                st.success("已同步到 GitHub。")
-            except Exception as e:
-                st.error(f"同步失敗：{e}")
-
+        try:
+            upsert_file_content(
+                token=token,
+                repo=repo,
+                path=path,
+                branch=branch,
+                text=local_json,
+                commit_message=f"Update notes backup {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            )
+            set_meta("last_sync_to_github", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            st.success("已同步到 GitHub。")
+        except Exception as e:
+            st.error(f"同步失敗：{e}")
     if c2.button("從 GitHub 還原", disabled=not _is_editor()):
-        if _require_editor():
-            try:
-                text, _sha = get_file_content(token=token, repo=repo, path=path, branch=branch)
-                if not text.strip():
-                    st.warning("GitHub 上尚無備份檔。")
-                else:
-                    import_json_text(text, replace=True)
-                    set_meta("last_restore_from_github", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                    st.success("已從 GitHub 還原。")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"還原失敗：{e}")
+        try:
+            text, _sha = get_file_content(token=token, repo=repo, path=path, branch=branch)
+            if not text.strip():
+                st.warning("GitHub 上尚無備份檔。")
+            else:
+                import_json_text(text, replace=True)
+                set_meta("last_restore_from_github", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                st.success("已從 GitHub 還原。")
+                st.rerun()
+        except Exception as e:
+            st.error(f"還原失敗：{e}")
 
     st.caption(f"上次同步：{get_meta('last_sync_to_github', '-')}")
     st.caption(f"上次還原：{get_meta('last_restore_from_github', '-')}")
@@ -470,15 +564,15 @@ def main() -> None:
     with st.sidebar:
         st.header("資料與權限")
         uploaded = st.file_uploader("上傳新 Excel（立即覆蓋本次會話資料）", type=["xlsx"])
-        if st.button("載入上傳檔案", disabled=uploaded is None):
+        if st.button("載入上傳檔案", disabled=uploaded is None, key="btn_load_upload"):
             st.session_state["bundle"] = load_bundle_from_upload(uploaded)
             st.success("已載入新檔案。")
             st.rerun()
 
         editor_pwd = st.secrets.get("EDITOR_PASSWORD", "")
         if editor_pwd:
-            pwd = st.text_input("編輯密碼", type="password")
-            if st.button("登入編輯模式"):
+            pwd = st.text_input("編輯密碼", type="password", key="editor_pwd_input")
+            if st.button("登入編輯模式", key="btn_editor_login"):
                 if pwd == editor_pwd:
                     st.session_state["editor_authed"] = True
                     st.success("已進入編輯模式")
@@ -486,9 +580,9 @@ def main() -> None:
                     st.session_state["editor_authed"] = False
                     st.error("密碼錯誤")
         else:
-            st.info("未設定 EDITOR_PASSWORD，當前為只讀模式。")
+            st.info("未設定 EDITOR_PASSWORD，當前為訪客只讀。")
         if _is_editor():
-            if st.button("登出編輯模式"):
+            if st.button("登出編輯模式", key="btn_editor_logout"):
                 st.session_state["editor_authed"] = False
                 st.rerun()
             st.success("你目前可編輯")
@@ -496,8 +590,7 @@ def main() -> None:
             st.caption("你目前為訪客只讀")
 
     filtered = _filter_df(df)
-
-    tab1, tab2, tab3, tab4 = st.tabs(["股票清單", "個股詳情", "時事筆記", "設定/同步"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["股票清單", "個股詳情", "時事事件筆記", "時事主題", "設定/同步"])
 
     with tab1:
         _render_subtheme_search(filtered)
@@ -514,33 +607,37 @@ def main() -> None:
                 "summary": "公司簡介",
             }
         )
-        page_size = st.selectbox("每頁筆數", [30, 50, 100, 200], index=1)
+        page_size = st.selectbox("每頁筆數", [30, 50, 100, 200], index=1, key="stocks_page_size")
         total_rows = len(display)
         total_pages = max(1, (total_rows + page_size - 1) // page_size)
-        page_no = st.number_input("頁碼", min_value=1, max_value=total_pages, value=1, step=1)
+        page_no = st.number_input("頁碼", min_value=1, max_value=total_pages, value=1, step=1, key="stocks_page_no")
         start = (page_no - 1) * page_size
         end = start + page_size
-        page_df = display.iloc[start:end].copy()
-        st.dataframe(page_df, use_container_width=True, hide_index=True)
+        st.dataframe(display.iloc[start:end], use_container_width=True, hide_index=True)
         st.caption(f"第 {page_no}/{total_pages} 頁，共 {total_rows:,} 筆")
 
-        csv_data = display.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("匯出目前篩選結果 CSV", data=csv_data, file_name="filtered_stocks.csv", mime="text/csv")
-
+        st.download_button(
+            "匯出目前篩選結果 CSV",
+            data=display.to_csv(index=False).encode("utf-8-sig"),
+            file_name="filtered_stocks.csv",
+            mime="text/csv",
+            key="btn_dl_filtered",
+        )
         tickers = filtered["ticker"].tolist()
         if tickers:
-            selected = st.selectbox("快速選股（跳到個股詳情）", tickers)
-            if st.button("開啟個股詳情"):
+            selected = st.selectbox("快速選股（跳到個股詳情）", tickers, key="quick_pick_ticker")
+            if st.button("開啟個股詳情", key="btn_open_stock"):
                 st.session_state["selected_ticker"] = selected
                 st.rerun()
 
     with tab2:
         ticker_candidates = filtered["ticker"].tolist() or df["ticker"].tolist()
-        default_ticker = st.session_state.get("selected_ticker", ticker_candidates[0] if ticker_candidates else "")
         if not ticker_candidates:
             st.warning("目前沒有可顯示股票。")
         else:
-            ticker = st.selectbox("選擇個股", ticker_candidates, index=max(0, ticker_candidates.index(default_ticker) if default_ticker in ticker_candidates else 0))
+            default_ticker = st.session_state.get("selected_ticker", ticker_candidates[0])
+            idx = ticker_candidates.index(default_ticker) if default_ticker in ticker_candidates else 0
+            ticker = st.selectbox("選擇個股", ticker_candidates, index=idx, key="stock_detail_pick")
             row = df[df["ticker"] == ticker].head(1).iloc[0]
             st.markdown(f"### {row['ticker']} - {row['company_name']}")
             c1, c2, c3 = st.columns(3)
@@ -555,8 +652,12 @@ def main() -> None:
         _render_macro_notes_page(df)
 
     with tab4:
+        _render_themes_page(df)
+
+    with tab5:
         _render_sync_panel()
 
 
 if __name__ == "__main__":
     main()
+
