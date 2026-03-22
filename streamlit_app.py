@@ -124,6 +124,29 @@ SAAS_ANCHORS = [
     "軟件",
 ]
 
+OIL_GAS_ANCHORS = ["oil", "gas", "lng", "upstream", "midstream", "downstream", "refining", "pipeline", "opec", "石油", "天然氣"]
+SEMIS_ANCHORS = ["semiconductor", "chip", "foundry", "wafer", "fab", "gpu", "asic", "半導體", "晶片"]
+DEFENSE_ANCHORS = ["defense", "military", "aerospace", "missile", "drone", "naval", "army", "國防", "軍工", "航太"]
+CYBER_ANCHORS = ["cyber", "security", "endpoint", "siem", "firewall", "zero trust", "網絡安全"]
+BIOTECH_ANCHORS = ["biotech", "pharma", "drug", "clinical", "fda", "療法", "藥", "生技", "醫藥"]
+BANK_ANCHORS = ["bank", "insurance", "broker", "asset management", "payments", "fintech", "銀行", "保險", "券商", "支付"]
+POWER_ANCHORS = ["utility", "power", "grid", "nuclear", "renewable", "電力", "核能", "電網"]
+LOGISTICS_ANCHORS = ["shipping", "logistics", "freight", "container", "rail", "air cargo", "航運", "物流"]
+
+
+THEME_GUARDRAILS = [
+    {"theme_keys": ["gold", "precious", "bullion", "金", "貴金屬"], "must_match": PRECIOUS_ANCHORS, "must_not": SAAS_ANCHORS},
+    {"theme_keys": ["oil", "gas", "energy", "石油", "天然氣", "能源"], "must_match": OIL_GAS_ANCHORS, "must_not": SAAS_ANCHORS},
+    {"theme_keys": ["semiconductor", "chip", "半導體", "晶片"], "must_match": SEMIS_ANCHORS, "must_not": []},
+    {"theme_keys": ["defense", "military", "國防", "軍工", "航太"], "must_match": DEFENSE_ANCHORS, "must_not": []},
+    {"theme_keys": ["cyber", "security", "網絡安全"], "must_match": CYBER_ANCHORS, "must_not": []},
+    {"theme_keys": ["biotech", "pharma", "醫藥", "生技"], "must_match": BIOTECH_ANCHORS, "must_not": []},
+    {"theme_keys": ["bank", "fintech", "金融", "保險"], "must_match": BANK_ANCHORS, "must_not": []},
+    {"theme_keys": ["power", "utility", "電力", "核能"], "must_match": POWER_ANCHORS, "must_not": []},
+    {"theme_keys": ["shipping", "logistics", "航運", "物流"], "must_match": LOGISTICS_ANCHORS, "must_not": []},
+    {"theme_keys": ["saas", "cloud software", "雲端軟件", "軟件"], "must_match": SAAS_ANCHORS, "must_not": PRECIOUS_ANCHORS + OIL_GAS_ANCHORS},
+]
+
 
 def _stock_blob(row: dict) -> str:
     return " ".join(
@@ -153,6 +176,19 @@ def _is_saas_stock(row: dict) -> bool:
     return any(k in b for k in SAAS_ANCHORS)
 
 
+def _theme_guardrail_pass(theme: str, row: dict) -> bool:
+    t = str(theme or "").lower()
+    b = _stock_blob(row)
+    for g in THEME_GUARDRAILS:
+        if any(k in t for k in g["theme_keys"]):
+            if not any(x in b for x in g["must_match"]):
+                return False
+            if any(x in b for x in g["must_not"]):
+                return False
+            return True
+    return True
+
+
 def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
     api_key, base_url, model = _get_llm_config()
     if not api_key:
@@ -180,6 +216,8 @@ def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
         h["theme"] = rule_map.get(raw_theme.lower(), raw_theme)
         tk = str(h.get("ticker", "")).upper()
         r0 = row_map.get(tk, {})
+        if not _theme_guardrail_pass(h["theme"], r0):
+            continue
         # Guardrail: precious-metals theme should not map to obvious SaaS names
         if _theme_is_precious(h["theme"]):
             if _is_saas_stock(r0) and not _is_precious_stock(r0):
@@ -274,10 +312,22 @@ def _apply_filters(df: pd.DataFrame, f: dict) -> pd.DataFrame:
     return out
 
 
-def _import_rss_rows(rdf2: pd.DataFrame, picks: list[str], auto_ai: bool, df: pd.DataFrame) -> tuple[int, int, int, int]:
+def _import_rss_rows(
+    rdf2: pd.DataFrame,
+    picks: list[str],
+    auto_ai: bool,
+    df: pd.DataFrame,
+    show_progress: bool = False,
+) -> tuple[int, int, int, int]:
     existing = list_macro_notes()
     imported = merged = skipped = mapped = 0
-    for _, r in rdf2.iterrows():
+    selected_rows = [r for _, r in rdf2.iterrows() if r["title"] in picks]
+    total = len(selected_rows)
+    bar = st.progress(0) if show_progress else None
+    status = st.empty() if show_progress else None
+    for idx, r in enumerate(selected_rows, start=1):
+        if show_progress and status is not None:
+            status.info(f"處理中 {idx}/{total}：{str(r.get('title',''))[:80]}")
         if r["title"] not in picks:
             continue
         title = (str(r.get("title_zh_tw", "")).strip() + " | " + str(r.get("title", "")).strip()).strip(" |")
@@ -327,6 +377,10 @@ def _import_rss_rows(rdf2: pd.DataFrame, picks: list[str], auto_ai: bool, df: pd
         if auto_ai:
             _, hc = _run_ai_for_event({"id": nid, "event_title": title, "event_detail": summary}, df)
             mapped += hc
+        if show_progress and bar is not None and total > 0:
+            bar.progress(min(100, int(idx * 100 / total)))
+    if show_progress and status is not None:
+        status.success(f"完成：新增 {imported} / 合併 {merged} / 略過 {skipped} / AI 命中 {mapped}")
     return imported, merged, skipped, mapped
 
 
@@ -467,6 +521,8 @@ def main() -> None:
         feeds_text = st.text_area("RSS feeds（每行一個）", value="\n".join(DEFAULT_RSS_FEEDS), height=120, key="rss_feeds")
         raw_keywords = [x.strip() for x in kw_text.split(",") if x.strip()]
         feeds = [x.strip() for x in feeds_text.splitlines() if x.strip()]
+        lookback_for_refetch = int(st.session_state.get("rss_lookback", 48))
+        max_items_for_refetch = int(st.session_state.get("rss_max_items", 30))
         custom = {r["keyword"]: r["expansions_list"] for r in list_keyword_synonyms() if r.get("enabled", True)}
         expanded, kmap = expand_keywords(raw_keywords, custom_synonyms=custom)
         st.caption(f"擴展關鍵字：{len(expanded)}（原始：{len(raw_keywords)}）")
@@ -486,7 +542,11 @@ def main() -> None:
                         elif err:
                             last_err = err
                     if added:
-                        st.success(f"已補全 {added} 個關鍵字")
+                        # Save + immediate refetch so user does not need to click fetch again.
+                        custom2 = {r["keyword"]: r["expansions_list"] for r in list_keyword_synonyms() if r.get("enabled", True)}
+                        items2 = fetch_rss_items(raw_keywords, feeds, lookback_for_refetch, max_items_for_refetch, custom_synonyms=custom2)
+                        st.session_state["rss_items"] = [x.__dict__ for x in items2]
+                        st.success(f"已補全 {added} 個關鍵字，並已自動重抓 RSS。")
                         st.rerun()
                     else:
                         st.error(f"目前無法補全：{last_err or '模型未回傳可用結果'}")
@@ -502,8 +562,8 @@ def main() -> None:
                     st.caption(f"{kx} -> {', '.join(vals)}")
 
         c1, c2, c3 = st.columns(3)
-        lookback = c1.number_input("回看小時", min_value=6, max_value=240, value=48, step=6)
-        max_items = c2.number_input("最多新聞數", min_value=10, max_value=300, value=30, step=10)
+        lookback = c1.number_input("回看小時", min_value=6, max_value=240, value=48, step=6, key="rss_lookback")
+        max_items = c2.number_input("最多新聞數", min_value=10, max_value=300, value=30, step=10, key="rss_max_items")
         auto_ai = c3.checkbox("匯入後自動 AI 映射", value=True)
         auto_daily = st.checkbox("每日自動抓 RSS（每天首次開站自動執行一次）", value=(str(get_meta("rss_daily_auto_enabled", "0")) == "1"))
         set_meta("rss_daily_auto_enabled", "1" if auto_daily else "0")
@@ -529,7 +589,7 @@ def main() -> None:
                 rdf2 = rdf2[rdf2["title"].astype(str).str.lower().str.contains(ql, na=False) | rdf2["title_zh_tw"].astype(str).str.lower().str.contains(ql, na=False)]
             picks = st.multiselect("選擇要匯入的新聞", rdf2["title"].tolist(), default=rdf2["title"].tolist()[: min(20, len(rdf2))])
             if d2.button("匯入選中新聞"):
-                imported, merged, skipped, mapped = _import_rss_rows(rdf2, picks, auto_ai, df)
+                imported, merged, skipped, mapped = _import_rss_rows(rdf2, picks, auto_ai, df, show_progress=True)
                 st.success(f"新增 {imported} / 合併 {merged} / 略過 {skipped} / AI 命中 {mapped}")
                 st.rerun()
 
