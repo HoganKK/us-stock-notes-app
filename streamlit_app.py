@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+import json
 from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from openai import OpenAI
 
 from ai_event_theme import classify_event_impact
 from data_loader import DEFAULT_INPUT_PATH, DataBundle, load_bundle_from_path, load_bundle_from_upload
@@ -81,6 +83,49 @@ def _theme_rule_map() -> dict[str, str]:
         if r.get("enabled", True):
             m[str(r["raw_theme"]).strip().lower()] = str(r["canonical_theme"]).strip()
     return m
+
+
+def _suggest_keyword_expansions_ai(term: str, current_expanded: list[str]) -> list[str]:
+    api_key = st.secrets.get("KIMI_API_KEY", "") or st.secrets.get("OPENAI_API_KEY", "")
+    if not api_key:
+        return []
+    base_url = st.secrets.get("KIMI_BASE_URL", "https://api.kimi.com/coding/v1")
+    model = st.secrets.get("KIMI_MODEL", "kimi-for-coding")
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    prompt = (
+        "你是金融新聞檢索助手。"
+        "請根據輸入主題詞，輸出 6-12 個最有檢索價值的擴展關鍵字（中英混合，可包含同義詞/常見縮寫/相關專有名詞）。"
+        "僅輸出 JSON 陣列字串，不要任何額外文字。"
+        f"\n主題詞: {term}"
+        f"\n已存在詞（避免重複）: {', '.join(current_expanded[:40])}"
+    )
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=220,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        m = re.search(r"\[[\s\S]*\]", text)
+        if m:
+            text = m.group(0)
+        arr = json.loads(text)
+        if not isinstance(arr, list):
+            return []
+        out = []
+        seen = set(x.lower() for x in current_expanded)
+        for x in arr:
+            sx = str(x).strip()
+            if not sx:
+                continue
+            if sx.lower() in seen:
+                continue
+            seen.add(sx.lower())
+            out.append(sx)
+        return out[:20]
+    except Exception:
+        return []
 
 
 def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
@@ -283,10 +328,35 @@ def main() -> None:
         raw_keywords = [x.strip() for x in kw_text.split(",") if x.strip()]
         custom = {r["keyword"]: r["expansions_list"] for r in list_keyword_synonyms() if r.get("enabled", True)}
         expanded, kmap = expand_keywords(raw_keywords, custom_synonyms=custom)
-        st.caption(f"擴展關鍵字：{len(expanded)}")
-        for kx, vals in kmap.items():
-            if vals:
-                st.caption(f"{kx} -> {', '.join(vals[:10])}{' ...' if len(vals) > 10 else ''}")
+        st.caption(f"擴展關鍵字：{len(expanded)}（原始：{len(raw_keywords)}）")
+
+        unmapped = [k for k in raw_keywords if not kmap.get(k)]
+        with st.expander("查看/管理擴展關鍵字", expanded=False):
+            if unmapped:
+                st.warning(f"未映射關鍵字：{', '.join(unmapped)}")
+                if st.button("AI 補全未映射關鍵字並寫入字典", key="btn_ai_expand_unmapped"):
+                    added = 0
+                    for uk in unmapped[:10]:
+                        sug = _suggest_keyword_expansions_ai(uk, expanded)
+                        if sug:
+                            upsert_keyword_synonym(uk, sug, True)
+                            added += 1
+                    if added > 0:
+                        st.success(f"已補全 {added} 個關鍵字，請再按一次『抓取 RSS』。")
+                        st.rerun()
+                    else:
+                        st.info("目前無法補全（可能未設 API key，或模型暫時未回應）。")
+
+            compact = st.checkbox("精簡顯示（每詞只顯示前 3 個）", value=True, key="kw_compact_view")
+            for kx, vals in kmap.items():
+                if not vals:
+                    continue
+                if compact:
+                    show_vals = vals[:3]
+                    more = len(vals) - len(show_vals)
+                    st.caption(f"{kx} -> {', '.join(show_vals)}" + (f" ... (+{more})" if more > 0 else ""))
+                else:
+                    st.caption(f"{kx} -> {', '.join(vals)}")
 
         c1, c2, c3 = st.columns(3)
         lookback = c1.number_input("回看小時", min_value=6, max_value=240, value=72, step=6, key="rss_lookback")
@@ -513,4 +583,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
