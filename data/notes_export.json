@@ -1,0 +1,106 @@
+{
+  "stock_notes": [],
+  "macro_notes": [
+    {
+      "id": 1,
+      "note_date": "2026-03-20",
+      "event_title": "Tim Cook’s China visit reinforces country’s importance to Apple as global frictions rise",
+      "event_detail": "Tim Cook visited China for Apple's 50th anniversary as the company enjoys a surge in iPhone sales while navigating rising geopolitical tensions.",
+      "affected_sectors": "",
+      "affected_subsectors": "",
+      "affected_tickers": "",
+      "impact": "中性",
+      "source_url": "https://www.cnbc.com/2026/03/20/tim-cooks-china-visit-reinforces-countrys-importance-to-apple-.html",
+      "created_at": "2026-03-22 15:31:37",
+      "updated_at": "2026-03-22 15:31:37"
+    }
+  ],
+  "event_theme_hits": [
+    {
+      "id": 1,
+      "note_id": 1,
+      "ticker": "AAPL",
+      "theme": "中國市場對科技公司的重要性",
+      "impact": "利多",
+      "confidence": 0.85,
+      "reason": "Tim Cook的訪問強調了中國對蘋果穩定增長的重要性。",
+      "created_at": "2026-03-22 15:31:44"
+    },
+    {
+      "id": 2,
+      "note_id": 1,
+      "ticker": "AAPL",
+      "theme": "地緣政治影響下的蘋果業務策略",
+      "impact": "中性",
+      "confidence": 0.7,
+      "reason": "蘋果應對日益增加的地緣政治風險，可能影響未來策略。",
+      "created_at": "2026-03-22 15:31:44"
+    }
+  ],
+  "keyword_synonyms": [
+    {
+      "id": 1,
+      "keyword": "美伊戰爭",
+      "expansions": "iran war|iran|us|middle east conflict|hormuz|iran-israel",
+      "enabled": 1,
+      "updated_at": "2026-03-22 15:26:45"
+    },
+    {
+      "id": 2,
+      "keyword": "以伊戰爭",
+      "expansions": "iran war|iran|israel|middle east conflict|hormuz",
+      "enabled": 1,
+      "updated_at": "2026-03-22 15:26:45"
+    },
+    {
+      "id": 3,
+      "keyword": "美以伊",
+      "expansions": "iran war|iran|israel|us|middle east conflict|hormuz",
+      "enabled": 1,
+      "updated_at": "2026-03-22 15:26:45"
+    },
+    {
+      "id": 4,
+      "keyword": "腦機接口",
+      "expansions": "brain-computer interface|bci|neuralink|brain chip",
+      "enabled": 1,
+      "updated_at": "2026-03-22 15:26:45"
+    },
+    {
+      "id": 5,
+      "keyword": "spacex",
+      "expansions": "spacex|starlink|space economy|launch services",
+      "enabled": 1,
+      "updated_at": "2026-03-22 15:26:45"
+    },
+    {
+      "id": 6,
+      "keyword": "量子",
+      "expansions": "quantum|quantum computing|qubit|quantum hardware",
+      "enabled": 1,
+      "updated_at": "2026-03-22 15:26:45"
+    },
+    {
+      "id": 73,
+      "keyword": "荷姆茲海峽",
+      "expansions": "hormuz strait|shipping routes|oil tanker|geopolitical tensions|maritime security|iran sanctions|gulf of oman|military presence|energy supply|regional stability|persian gulf|international trade",
+      "enabled": 1,
+      "updated_at": "2026-03-22 15:30:26"
+    }
+  ],
+  "theme_canonical_rules": [],
+  "app_meta": [
+    {
+      "key": "data_source_name",
+      "value": "/mount/src/us-stock-notes-app/output/us_stocks_investable_themes_zh_tw_fast.xlsx"
+    },
+    {
+      "key": "event_min_confidence",
+      "value": "0.55"
+    },
+    {
+      "key": "rss_daily_auto_enabled",
+      "value": "0"
+    }
+  ]
+}
