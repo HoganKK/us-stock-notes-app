@@ -7,7 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-DB_PATH = Path("E:/VScode/my_python_project/stock_fetcher/output/notes.db")
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "output" / "notes.db"
 
 
 def get_conn(db_path: Path = DB_PATH) -> sqlite3.Connection:
@@ -398,4 +399,3 @@ def export_json_text(db_path: Path = DB_PATH) -> str:
 def import_json_text(text: str, db_path: Path = DB_PATH, replace: bool = True) -> None:
     payload = json.loads(text)
     import_all_from_dict(payload, db_path=db_path, replace=replace)
-

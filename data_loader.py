@@ -10,7 +10,15 @@ from typing import Any
 import pandas as pd
 
 
-DEFAULT_INPUT_PATH = Path("E:/VScode/my_python_project/stock_fetcher/output/us_stocks_investable_themes_zh_tw_fast.xlsx")
+BASE_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = BASE_DIR / "output"
+DEFAULT_INPUT_CANDIDATES = [
+    OUTPUT_DIR / "us_stocks_investable_themes_zh_tw_fast.xlsx",
+    OUTPUT_DIR / "us_stocks_investable_themes.xlsx",
+    OUTPUT_DIR / "us_stocks_subsectors_ai_zh_tw.xlsx",
+    OUTPUT_DIR / "us_stocks_subsectors.xlsx",
+]
+DEFAULT_INPUT_PATH = DEFAULT_INPUT_CANDIDATES[0]
 PREFERRED_SHEETS = ["可投資清單", "investable_all", "all_stocks", "全部股票"]
 
 
@@ -33,6 +41,17 @@ def _pick_sheet(sheet_names: list[str]) -> str:
         if name in sheet_names:
             return name
     return sheet_names[0]
+
+
+def resolve_default_input_path() -> Path:
+    for p in DEFAULT_INPUT_CANDIDATES:
+        if p.exists():
+            return p
+    raise FileNotFoundError(
+        "No default Excel found under ./output. "
+        "Expected one of: "
+        + ", ".join(str(p.name) for p in DEFAULT_INPUT_CANDIDATES)
+    )
 
 
 def _coalesce(df: pd.DataFrame, candidates: list[str], default: str = "") -> pd.Series:
@@ -87,6 +106,11 @@ def to_internal_schema(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_bundle_from_path(path: Path) -> DataBundle:
+    path = Path(path)
+    if not path.exists():
+        # On Streamlit Cloud, local absolute Windows paths will not exist.
+        # Fall back to project-relative default candidates.
+        path = resolve_default_input_path()
     if not path.exists():
         raise FileNotFoundError(f"Excel not found: {path}")
     content = path.read_bytes()
@@ -118,4 +142,3 @@ def load_bundle_from_upload(uploaded_file: Any) -> DataBundle:
         loaded_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         source_sheet=sheet,
     )
-
