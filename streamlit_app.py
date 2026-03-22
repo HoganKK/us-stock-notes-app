@@ -103,6 +103,56 @@ def _theme_rule_map() -> dict[str, str]:
     return out
 
 
+PRECIOUS_ANCHORS = [
+    "gold",
+    "silver",
+    "precious",
+    "mining",
+    "miner",
+    "bullion",
+    "金",
+    "銀",
+    "貴金屬",
+    "礦",
+]
+
+SAAS_ANCHORS = [
+    "saas",
+    "subscription software",
+    "project management software",
+    "雲端軟件",
+    "軟件",
+]
+
+
+def _stock_blob(row: dict) -> str:
+    return " ".join(
+        [
+            str(row.get("company_name", "")),
+            str(row.get("sector", "")),
+            str(row.get("subsector", "")),
+            str(row.get("tags", "")),
+            str(row.get("summary", "")),
+        ]
+    ).lower()
+
+
+def _theme_is_precious(theme: str) -> bool:
+    t = str(theme or "").lower()
+    keys = ["gold", "precious", "bullion", "金", "貴金屬", "銀"]
+    return any(k in t for k in keys)
+
+
+def _is_precious_stock(row: dict) -> bool:
+    b = _stock_blob(row)
+    return any(k in b for k in PRECIOUS_ANCHORS)
+
+
+def _is_saas_stock(row: dict) -> bool:
+    b = _stock_blob(row)
+    return any(k in b for k in SAAS_ANCHORS)
+
+
 def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
     api_key, base_url, model = _get_llm_config()
     if not api_key:
@@ -121,13 +171,44 @@ def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
     min_conf = get_event_min_confidence()
     rule_map = _theme_rule_map()
     refined = []
+    row_map = {str(r.get("ticker", "")).upper(): r for r in rows}
     for h in res.hits:
         conf = float(h.get("confidence", 0.0) or 0.0)
         if conf < min_conf:
             continue
         raw_theme = str(h.get("theme", "")).strip()
         h["theme"] = rule_map.get(raw_theme.lower(), raw_theme)
+        tk = str(h.get("ticker", "")).upper()
+        r0 = row_map.get(tk, {})
+        # Guardrail: precious-metals theme should not map to obvious SaaS names
+        if _theme_is_precious(h["theme"]):
+            if _is_saas_stock(r0) and not _is_precious_stock(r0):
+                continue
         refined.append(h)
+
+    # Augment missing obvious precious-metals names (e.g., NEM) when theme exists
+    has_precious_theme = any(_theme_is_precious(x.get("theme", "")) for x in refined)
+    if has_precious_theme:
+        exist_tickers = {str(x.get("ticker", "")).upper() for x in refined}
+        base_impact = "中性"
+        for x in refined:
+            if _theme_is_precious(x.get("theme", "")):
+                base_impact = str(x.get("impact", "中性"))
+                break
+        for r in rows:
+            tk = str(r.get("ticker", "")).upper()
+            if tk in exist_tickers:
+                continue
+            if _is_precious_stock(r):
+                refined.append(
+                    {
+                        "ticker": tk,
+                        "theme": "貴金屬市場波動",
+                        "impact": base_impact,
+                        "confidence": max(0.56, min_conf),
+                        "reason": "規則補全：公司屬性與貴金屬/礦業高度相關",
+                    }
+                )
 
     replace_event_theme_hits(int(event_row["id"]), refined)
     return len(set([x["theme"] for x in refined])), len(refined)
@@ -549,4 +630,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
