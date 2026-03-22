@@ -106,14 +106,15 @@ def _theme_rule_map() -> dict[str, str]:
 PRECIOUS_ANCHORS = [
     "gold",
     "silver",
-    "precious",
-    "mining",
-    "miner",
+    "precious metal",
     "bullion",
-    "金",
-    "銀",
+    "gold miner",
+    "silver miner",
+    "gold mining",
+    "silver mining",
+    "金礦",
+    "銀礦",
     "貴金屬",
-    "礦",
 ]
 
 SAAS_ANCHORS = [
@@ -168,12 +169,27 @@ def _theme_is_precious(theme: str) -> bool:
 
 def _is_precious_stock(row: dict) -> bool:
     b = _stock_blob(row)
-    return any(k in b for k in PRECIOUS_ANCHORS)
+    if any(k in b for k in PRECIOUS_ANCHORS):
+        return True
+    # strict word-boundary fallback for English
+    return bool(re.search(r"\b(gold|silver|bullion|mining)\b", b))
 
 
 def _is_saas_stock(row: dict) -> bool:
     b = _stock_blob(row)
     return any(k in b for k in SAAS_ANCHORS)
+
+
+def _keep_english_like_terms(items: list[str]) -> list[str]:
+    out = []
+    for x in items:
+        s = str(x or "").strip()
+        if not s:
+            continue
+        # Keep mostly English/number/symbol query terms, drop pure CJK long phrases.
+        if re.fullmatch(r"[A-Za-z0-9\-\+\.\s]{2,60}", s):
+            out.append(re.sub(r"\s+", " ", s).strip().lower())
+    return list(dict.fromkeys(out))
 
 
 def _theme_guardrail_pass(theme: str, row: dict) -> bool:
@@ -233,6 +249,7 @@ def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
             if _theme_is_precious(x.get("theme", "")):
                 base_impact = str(x.get("impact", "中性"))
                 break
+        added_cnt = 0
         for r in rows:
             tk = str(r.get("ticker", "")).upper()
             if tk in exist_tickers:
@@ -247,6 +264,9 @@ def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
                         "reason": "規則補全：公司屬性與貴金屬/礦業高度相關",
                     }
                 )
+                added_cnt += 1
+                if added_cnt >= 30:
+                    break
 
     replace_event_theme_hits(int(event_row["id"]), refined)
     return len(set([x["theme"] for x in refined])), len(refined)
@@ -536,6 +556,7 @@ def main() -> None:
                     last_err = ""
                     for uk in unmapped[:10]:
                         sug, err = _suggest_keyword_expansions_ai(uk, expanded)
+                        sug = _keep_english_like_terms(sug)
                         if sug:
                             upsert_keyword_synonym(uk, sug, True)
                             added += 1
