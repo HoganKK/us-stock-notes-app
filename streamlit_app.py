@@ -61,77 +61,96 @@ def _parse_tags(x: str) -> list[str]:
 
 
 def _filter_df(df: pd.DataFrame) -> pd.DataFrame:
-    # Persist filter state explicitly so reruns won't reset selections.
-    if "flt_keyword" not in st.session_state:
-        st.session_state["flt_keyword"] = ""
-    if "flt_sectors" not in st.session_state:
-        st.session_state["flt_sectors"] = []
-    if "flt_subsectors" not in st.session_state:
-        st.session_state["flt_subsectors"] = []
-    if "flt_exchanges" not in st.session_state:
-        st.session_state["flt_exchanges"] = []
-    if "flt_tags" not in st.session_state:
-        st.session_state["flt_tags"] = []
-    if "flt_tag_mode" not in st.session_state:
-        st.session_state["flt_tag_mode"] = "任一命中"
+    # Applied filter state (stable across reruns)
+    defaults = {
+        "flt_keyword": "",
+        "flt_sectors": [],
+        "flt_subsectors": [],
+        "flt_exchanges": [],
+        "flt_tags": [],
+        "flt_tag_mode": "????",
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-    key = st.sidebar.text_input(
-        "關鍵字搜尋（代號/公司/簡介/子板塊/標籤）",
-        value=st.session_state["flt_keyword"],
-        key="flt_keyword",
-    )
-    if st.sidebar.button("清空全部篩選"):
-        st.session_state["flt_keyword"] = ""
-        st.session_state["flt_sectors"] = []
-        st.session_state["flt_subsectors"] = []
-        st.session_state["flt_exchanges"] = []
-        st.session_state["flt_tags"] = []
-        st.session_state["flt_tag_mode"] = "任一命中"
-        st.rerun()
     sectors = sorted([x for x in df["sector"].dropna().astype(str).unique().tolist() if x.strip()])
     subsectors = sorted([x for x in df["subsector"].dropna().astype(str).unique().tolist() if x.strip()])
     exchanges = sorted([x for x in df["exchange"].dropna().astype(str).unique().tolist() if x.strip()])
-
-    selected_sectors = st.sidebar.multiselect(
-        "大分類",
-        sectors,
-        default=[x for x in st.session_state["flt_sectors"] if x in sectors],
-        key="flt_sectors",
-    )
-    selected_subsectors = st.sidebar.multiselect(
-        "最終子分類",
-        subsectors,
-        default=[x for x in st.session_state["flt_subsectors"] if x in subsectors],
-        key="flt_subsectors",
-    )
-    selected_exchanges = st.sidebar.multiselect(
-        "交易所",
-        exchanges,
-        default=[x for x in st.session_state["flt_exchanges"] if x in exchanges],
-        key="flt_exchanges",
-    )
 
     all_tags = set()
     for tags in df["tags_list"].tolist():
         for t in tags:
             all_tags.add(t)
     tag_options = sorted(all_tags)
-    selected_tags = st.sidebar.multiselect(
-        "AI 小分類標籤",
-        tag_options,
-        default=[x for x in st.session_state["flt_tags"] if x in tag_options],
-        key="flt_tags",
-    )
-    tag_mode = st.sidebar.radio(
-        "標籤匹配模式",
-        ["任一命中", "全部命中"],
-        horizontal=True,
-        key="flt_tag_mode",
-    )
+
+    # Draft controls live inside a form; only Apply updates effective filters.
+    with st.sidebar.form("filters_form", clear_on_submit=False):
+        draft_keyword = st.text_input(
+            "????????/??/??/???/???",
+            value=st.session_state["flt_keyword"],
+            key="draft_flt_keyword",
+        )
+        draft_sectors = st.multiselect(
+            "???",
+            sectors,
+            default=[x for x in st.session_state["flt_sectors"] if x in sectors],
+            key="draft_flt_sectors",
+        )
+        draft_subsectors = st.multiselect(
+            "?????",
+            subsectors,
+            default=[x for x in st.session_state["flt_subsectors"] if x in subsectors],
+            key="draft_flt_subsectors",
+        )
+        draft_exchanges = st.multiselect(
+            "???",
+            exchanges,
+            default=[x for x in st.session_state["flt_exchanges"] if x in exchanges],
+            key="draft_flt_exchanges",
+        )
+        draft_tags = st.multiselect(
+            "AI ?????",
+            tag_options,
+            default=[x for x in st.session_state["flt_tags"] if x in tag_options],
+            key="draft_flt_tags",
+        )
+        draft_tag_mode = st.radio(
+            "??????",
+            ["????", "????"],
+            horizontal=True,
+            index=0 if st.session_state["flt_tag_mode"] == "????" else 1,
+            key="draft_flt_tag_mode",
+        )
+        c1, c2 = st.columns(2)
+        apply_clicked = c1.form_submit_button("????", use_container_width=True)
+        clear_clicked = c2.form_submit_button("????", use_container_width=True)
+
+    if clear_clicked:
+        for k, v in defaults.items():
+            st.session_state[k] = v
+        st.rerun()
+
+    if apply_clicked:
+        st.session_state["flt_keyword"] = draft_keyword
+        st.session_state["flt_sectors"] = draft_sectors
+        st.session_state["flt_subsectors"] = draft_subsectors
+        st.session_state["flt_exchanges"] = draft_exchanges
+        st.session_state["flt_tags"] = draft_tags
+        st.session_state["flt_tag_mode"] = draft_tag_mode
+        st.rerun()
+
+    # Apply currently active filters
+    key = st.session_state["flt_keyword"]
+    selected_sectors = st.session_state["flt_sectors"]
+    selected_subsectors = st.session_state["flt_subsectors"]
+    selected_exchanges = st.session_state["flt_exchanges"]
+    selected_tags = st.session_state["flt_tags"]
+    tag_mode = st.session_state["flt_tag_mode"]
 
     filtered = df.copy()
-    if key.strip():
-        k = key.strip().lower()
+    if str(key).strip():
+        k = str(key).strip().lower()
         filtered = filtered[filtered["search_blob"].str.contains(k, na=False)]
     if selected_sectors:
         filtered = filtered[filtered["sector"].isin(selected_sectors)]
@@ -140,12 +159,12 @@ def _filter_df(df: pd.DataFrame) -> pd.DataFrame:
     if selected_exchanges:
         filtered = filtered[filtered["exchange"].isin(selected_exchanges)]
     if selected_tags:
-        if tag_mode == "任一命中":
+        if tag_mode == "????":
             filtered = filtered[filtered["tags_list"].map(lambda xs: any(t in xs for t in selected_tags))]
         else:
             filtered = filtered[filtered["tags_list"].map(lambda xs: all(t in xs for t in selected_tags))]
 
-    st.sidebar.markdown(f"**篩選後筆數：{len(filtered):,}**")
+    st.sidebar.markdown(f"**??????{len(filtered):,}**")
     return filtered.reset_index(drop=True)
 
 
