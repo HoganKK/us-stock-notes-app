@@ -668,21 +668,29 @@ def main() -> None:
             use_container_width=True,
             hide_index=True,
         )
+        with st.expander("??????", expanded=False):
+            st.markdown(
+                "- `???`???????? ticker ?????????\n"
+                "- `???`??????????????? ticker ??????????\n"
+                "- ????????? AI + ?????\n"
+                "- ?????`confidence ? ?????` ????"
+            )
         if rows:
-            picked = st.selectbox("查看主題", [x["theme"] for x in rows])
-            if _is_editor():
-                c1, c2, c3 = st.columns(3)
-                if c1.button("清理選中主題命中", key="btn_clear_theme_hits"):
-                    n = delete_event_theme_hits_by_theme(picked)
-                    st.success(f"已清理主題 {picked} 的命中：{n} 筆")
-                    st.rerun()
-                if c2.button("清理全部主題命中", key="btn_clear_all_hits"):
-                    n = clear_all_event_theme_hits()
-                    st.success(f"已清理全部命中：{n} 筆")
-                    st.rerun()
-                if c3.button("重跑全部事件 AI", key="btn_rebuild_all_hits"):
-                    _rebuild_all_theme_hits(df)
-                    st.rerun()
+            picked = st.selectbox("????", [x["theme"] for x in rows])
+            c1, c2, c3 = st.columns(3)
+            if c1.button("????????", key="btn_clear_theme_hits", disabled=not _is_editor()):
+                n = delete_event_theme_hits_by_theme(picked)
+                st.success(f"????? {picked} ????{n} ?")
+                st.rerun()
+            if c2.button("????????", key="btn_clear_all_hits", disabled=not _is_editor()):
+                n = clear_all_event_theme_hits()
+                st.success(f"????????{n} ?")
+                st.rerun()
+            if c3.button("?????? AI", key="btn_rebuild_all_hits", disabled=not _is_editor()):
+                _rebuild_all_theme_hits(df)
+                st.rerun()
+            if not _is_editor():
+                st.caption("??????????????????????????/?????")
             hits = list_event_theme_hits(theme_keyword=picked)
             st.dataframe(_safe_df_rows(hits, ["ticker", "theme", "impact", "confidence", "reason", "note_date", "event_title"]), use_container_width=True, hide_index=True)
 
