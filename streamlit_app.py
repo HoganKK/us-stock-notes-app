@@ -592,6 +592,16 @@ def main() -> None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
+        tv_symbols = [s for s in export_df["tradingview_symbol"].astype(str).tolist() if s.strip()]
+        tv_symbols = list(dict.fromkeys(tv_symbols))
+        tv_txt = "###WATCHLIST," + ",".join(tv_symbols)
+        st.download_button(
+            "Export TradingView TXT",
+            tv_txt.encode("utf-8-sig"),
+            file_name=f"tv_watchlist_{datetime.now():%Y%m%d_%H%M%S}.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
         t = st.selectbox("個股筆記代號", sorted(show["ticker"].tolist())[:800] if len(show) else [])
         if t:
             notes = list_stock_notes(ticker=t)
