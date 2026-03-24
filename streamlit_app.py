@@ -1,8 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import re
 from datetime import date, datetime
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -40,7 +41,7 @@ from notes_store import (
 )
 from rss_ingest import DEFAULT_RSS_FEEDS, expand_keywords, fetch_rss_items
 
-st.set_page_config(page_title="美股清單與筆記系統", page_icon="📈", layout="wide")
+st.set_page_config(page_title="缇庤偂娓呭柈鑸囩瓎瑷樼郴绲?, page_icon="馃搱", layout="wide")
 
 
 @st.cache_data(show_spinner=False)
@@ -65,7 +66,7 @@ def _safe_df_rows(rows: list[dict], columns: list[str]) -> pd.DataFrame:
 def _split_tags(s: str) -> list[str]:
     if not str(s or "").strip():
         return []
-    return [x.strip() for x in re.split(r"[,\|;/，；、]+", str(s)) if x.strip()]
+    return [x.strip() for x in re.split(r"[,\|;/锛岋紱銆乚+", str(s)) if x.strip()]
 
 
 def _norm_title(s: str) -> str:
@@ -111,7 +112,7 @@ def _sync_notes_to_github_now() -> tuple[bool, str]:
     branch = st.secrets.get("GITHUB_BRANCH", "main")
     path = st.secrets.get("GITHUB_NOTES_PATH", "data/notes_export.json")
     if not token or not repo:
-        return False, "缺少 GITHUB_TOKEN 或 GITHUB_REPO"
+        return False, "缂哄皯 GITHUB_TOKEN 鎴?GITHUB_REPO"
     payload = export_json_text()
     upsert_file_content(token, repo, path, branch, payload, f"Update notes backup {datetime.now():%Y-%m-%d %H:%M:%S}")
     set_meta("last_sync_to_github", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -127,40 +128,40 @@ PRECIOUS_ANCHORS = [
     "silver miner",
     "gold mining",
     "silver mining",
-    "金礦",
-    "銀礦",
-    "貴金屬",
+    "閲戠う",
+    "閵€绀?,
+    "璨撮噾灞?,
 ]
 
 SAAS_ANCHORS = [
     "saas",
     "subscription software",
     "project management software",
-    "雲端軟件",
-    "軟件",
+    "闆茬杌熶欢",
+    "杌熶欢",
 ]
 
-OIL_GAS_ANCHORS = ["oil", "gas", "lng", "upstream", "midstream", "downstream", "refining", "pipeline", "opec", "石油", "天然氣"]
-SEMIS_ANCHORS = ["semiconductor", "chip", "foundry", "wafer", "fab", "gpu", "asic", "半導體", "晶片"]
-DEFENSE_ANCHORS = ["defense", "military", "aerospace", "missile", "drone", "naval", "army", "國防", "軍工", "航太"]
-CYBER_ANCHORS = ["cyber", "security", "endpoint", "siem", "firewall", "zero trust", "網絡安全"]
-BIOTECH_ANCHORS = ["biotech", "pharma", "drug", "clinical", "fda", "療法", "藥", "生技", "醫藥"]
-BANK_ANCHORS = ["bank", "insurance", "broker", "asset management", "payments", "fintech", "銀行", "保險", "券商", "支付"]
-POWER_ANCHORS = ["utility", "power", "grid", "nuclear", "renewable", "電力", "核能", "電網"]
-LOGISTICS_ANCHORS = ["shipping", "logistics", "freight", "container", "rail", "air cargo", "航運", "物流"]
+OIL_GAS_ANCHORS = ["oil", "gas", "lng", "upstream", "midstream", "downstream", "refining", "pipeline", "opec", "鐭虫补", "澶╃劧姘?]
+SEMIS_ANCHORS = ["semiconductor", "chip", "foundry", "wafer", "fab", "gpu", "asic", "鍗婂皫楂?, "鏅剁墖"]
+DEFENSE_ANCHORS = ["defense", "military", "aerospace", "missile", "drone", "naval", "army", "鍦嬮槻", "杌嶅伐", "鑸お"]
+CYBER_ANCHORS = ["cyber", "security", "endpoint", "siem", "firewall", "zero trust", "缍茬怠瀹夊叏"]
+BIOTECH_ANCHORS = ["biotech", "pharma", "drug", "clinical", "fda", "鐧傛硶", "钘?, "鐢熸妧", "閱棩"]
+BANK_ANCHORS = ["bank", "insurance", "broker", "asset management", "payments", "fintech", "閵€琛?, "淇濋毆", "鍒稿晢", "鏀粯"]
+POWER_ANCHORS = ["utility", "power", "grid", "nuclear", "renewable", "闆诲姏", "鏍歌兘", "闆荤恫"]
+LOGISTICS_ANCHORS = ["shipping", "logistics", "freight", "container", "rail", "air cargo", "鑸亱", "鐗╂祦"]
 
 
 THEME_GUARDRAILS = [
-    {"theme_keys": ["gold", "precious", "bullion", "金", "貴金屬"], "must_match": PRECIOUS_ANCHORS, "must_not": SAAS_ANCHORS},
-    {"theme_keys": ["oil", "gas", "energy", "石油", "天然氣", "能源"], "must_match": OIL_GAS_ANCHORS, "must_not": SAAS_ANCHORS},
-    {"theme_keys": ["semiconductor", "chip", "半導體", "晶片"], "must_match": SEMIS_ANCHORS, "must_not": []},
-    {"theme_keys": ["defense", "military", "國防", "軍工", "航太"], "must_match": DEFENSE_ANCHORS, "must_not": []},
-    {"theme_keys": ["cyber", "security", "網絡安全"], "must_match": CYBER_ANCHORS, "must_not": []},
-    {"theme_keys": ["biotech", "pharma", "醫藥", "生技"], "must_match": BIOTECH_ANCHORS, "must_not": []},
-    {"theme_keys": ["bank", "fintech", "金融", "保險"], "must_match": BANK_ANCHORS, "must_not": []},
-    {"theme_keys": ["power", "utility", "電力", "核能"], "must_match": POWER_ANCHORS, "must_not": []},
-    {"theme_keys": ["shipping", "logistics", "航運", "物流"], "must_match": LOGISTICS_ANCHORS, "must_not": []},
-    {"theme_keys": ["saas", "cloud software", "雲端軟件", "軟件"], "must_match": SAAS_ANCHORS, "must_not": PRECIOUS_ANCHORS + OIL_GAS_ANCHORS},
+    {"theme_keys": ["gold", "precious", "bullion", "閲?, "璨撮噾灞?], "must_match": PRECIOUS_ANCHORS, "must_not": SAAS_ANCHORS},
+    {"theme_keys": ["oil", "gas", "energy", "鐭虫补", "澶╃劧姘?, "鑳芥簮"], "must_match": OIL_GAS_ANCHORS, "must_not": SAAS_ANCHORS},
+    {"theme_keys": ["semiconductor", "chip", "鍗婂皫楂?, "鏅剁墖"], "must_match": SEMIS_ANCHORS, "must_not": []},
+    {"theme_keys": ["defense", "military", "鍦嬮槻", "杌嶅伐", "鑸お"], "must_match": DEFENSE_ANCHORS, "must_not": []},
+    {"theme_keys": ["cyber", "security", "缍茬怠瀹夊叏"], "must_match": CYBER_ANCHORS, "must_not": []},
+    {"theme_keys": ["biotech", "pharma", "閱棩", "鐢熸妧"], "must_match": BIOTECH_ANCHORS, "must_not": []},
+    {"theme_keys": ["bank", "fintech", "閲戣瀺", "淇濋毆"], "must_match": BANK_ANCHORS, "must_not": []},
+    {"theme_keys": ["power", "utility", "闆诲姏", "鏍歌兘"], "must_match": POWER_ANCHORS, "must_not": []},
+    {"theme_keys": ["shipping", "logistics", "鑸亱", "鐗╂祦"], "must_match": LOGISTICS_ANCHORS, "must_not": []},
+    {"theme_keys": ["saas", "cloud software", "闆茬杌熶欢", "杌熶欢"], "must_match": SAAS_ANCHORS, "must_not": PRECIOUS_ANCHORS + OIL_GAS_ANCHORS},
 ]
 
 
@@ -178,7 +179,7 @@ def _stock_blob(row: dict) -> str:
 
 def _theme_is_precious(theme: str) -> bool:
     t = str(theme or "").lower()
-    keys = ["gold", "precious", "bullion", "金", "貴金屬", "銀"]
+    keys = ["gold", "precious", "bullion", "閲?, "璨撮噾灞?, "閵€"]
     return any(k in t for k in keys)
 
 
@@ -207,6 +208,26 @@ def _keep_english_like_terms(items: list[str]) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def _to_tv_symbol(exchange: str, ticker: str) -> str:
+    ex = str(exchange or "").upper().strip()
+    tk = str(ticker or "").upper().strip()
+    if not tk:
+        return ""
+    if "NASDAQ" in ex:
+        prefix = "NASDAQ"
+    elif "AMEX" in ex:
+        prefix = "AMEX"
+    elif "NYSE" in ex:
+        prefix = "NYSE"
+    elif "ARCA" in ex:
+        prefix = "AMEX"
+    elif "BATS" in ex:
+        prefix = "BATS"
+    else:
+        prefix = ex.replace(" ", "") if ex else "NASDAQ"
+    return f"{prefix}:{tk}"
+
+
 def _theme_guardrail_pass(theme: str, row: dict) -> bool:
     t = str(theme or "").lower()
     b = _stock_blob(row)
@@ -223,7 +244,7 @@ def _theme_guardrail_pass(theme: str, row: dict) -> bool:
 def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
     api_key, base_url, model = _get_llm_config()
     if not api_key:
-        raise RuntimeError("缺少 API key（OPENAI_API_KEY / KIMI_API_KEY）")
+        raise RuntimeError("缂哄皯 API key锛圤PENAI_API_KEY / KIMI_API_KEY锛?)
 
     rows = df[["ticker", "company_name", "sector", "subsector", "tags", "summary"]].to_dict("records")
     res = classify_event_impact(
@@ -259,10 +280,10 @@ def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
     has_precious_theme = any(_theme_is_precious(x.get("theme", "")) for x in refined)
     if has_precious_theme:
         exist_tickers = {str(x.get("ticker", "")).upper() for x in refined}
-        base_impact = "中性"
+        base_impact = "涓€?
         for x in refined:
             if _theme_is_precious(x.get("theme", "")):
-                base_impact = str(x.get("impact", "中性"))
+                base_impact = str(x.get("impact", "涓€?))
                 break
         added_cnt = 0
         for r in rows:
@@ -273,10 +294,10 @@ def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
                 refined.append(
                     {
                         "ticker": tk,
-                        "theme": "貴金屬市場波動",
+                        "theme": "璨撮噾灞競鍫存尝鍕?,
                         "impact": base_impact,
                         "confidence": max(0.56, min_conf),
-                        "reason": "規則補全：公司屬性與貴金屬/礦業高度相關",
+                        "reason": "瑕忓墖瑁滃叏锛氬叕鍙稿爆鎬ц垏璨撮噾灞?绀︽キ楂樺害鐩搁棞",
                     }
                 )
                 added_cnt += 1
@@ -290,14 +311,14 @@ def _run_ai_for_event(event_row: dict, df: pd.DataFrame) -> tuple[int, int]:
 def _suggest_keyword_expansions_ai(term: str, current_expanded: list[str]) -> tuple[list[str], str]:
     api_key, base_url, model = _get_llm_config()
     if not api_key:
-        return [], "缺少 API key"
+        return [], "缂哄皯 API key"
     client = OpenAI(api_key=api_key, base_url=base_url)
 
     prompt = (
-        "你是金融新聞檢索助手。請根據輸入主題詞，輸出 6-12 個最有檢索價值的擴展關鍵字（中英混合）。"
-        "只輸出 JSON 陣列，不要其他文字。"
-        f"\n主題詞: {term}"
-        f"\n已存在詞（避免重複）: {', '.join(current_expanded[:40])}"
+        "浣犳槸閲戣瀺鏂拌仦妾㈢储鍔╂墜銆傝珛鏍规摎杓稿叆涓婚瑭烇紝杓稿嚭 6-12 鍊嬫渶鏈夋绱㈠児鍊肩殑鎿村睍闂滈嵉瀛楋紙涓嫳娣峰悎锛夈€?
+        "鍙几鍑?JSON 闄ｅ垪锛屼笉瑕佸叾浠栨枃瀛椼€?
+        f"\n涓婚瑭? {term}"
+        f"\n宸插瓨鍦ㄨ锛堥伩鍏嶉噸瑜囷級: {', '.join(current_expanded[:40])}"
     )
     try:
         resp = client.chat.completions.create(
@@ -312,7 +333,7 @@ def _suggest_keyword_expansions_ai(term: str, current_expanded: list[str]) -> tu
             text = m.group(0)
         arr = json.loads(text)
         if not isinstance(arr, list):
-            return [], "模型未回傳 JSON 陣列"
+            return [], "妯″瀷鏈洖鍌?JSON 闄ｅ垪"
         out = []
         seen = set([x.lower() for x in current_expanded])
         for x in arr:
@@ -362,7 +383,7 @@ def _import_rss_rows(
     status = st.empty() if show_progress else None
     for idx, r in enumerate(selected_rows, start=1):
         if show_progress and status is not None:
-            status.info(f"處理中 {idx}/{total}：{str(r.get('title',''))[:80]}")
+            status.info(f"铏曠悊涓?{idx}/{total}锛歿str(r.get('title',''))[:80]}")
         if r["title"] not in picks:
             continue
         title = (str(r.get("title_zh_tw", "")).strip() + " | " + str(r.get("title", "")).strip()).strip(" |")
@@ -405,7 +426,7 @@ def _import_rss_rows(
             affected_sectors=[],
             affected_subsectors=[],
             affected_tickers=[],
-            impact="中性",
+            impact="涓€?,
             source_url=link,
         )
         imported += 1
@@ -415,7 +436,7 @@ def _import_rss_rows(
         if show_progress and bar is not None and total > 0:
             bar.progress(min(100, int(idx * 100 / total)))
     if show_progress and status is not None:
-        status.success(f"完成：新增 {imported} / 合併 {merged} / 略過 {skipped} / AI 命中 {mapped}")
+        status.success(f"瀹屾垚锛氭柊澧?{imported} / 鍚堜降 {merged} / 鐣ラ亷 {skipped} / AI 鍛戒腑 {mapped}")
     return imported, merged, skipped, mapped
 
 
@@ -453,12 +474,12 @@ def _rebuild_all_theme_hits(df: pd.DataFrame) -> tuple[int, int]:
     rebuilt_hits = 0
     total = len(events)
     for i, ev in enumerate(events, start=1):
-        status.info(f"重算事件 {i}/{total}: {str(ev.get('event_title',''))[:90]}")
+        status.info(f"閲嶇畻浜嬩欢 {i}/{total}: {str(ev.get('event_title',''))[:90]}")
         tc, hc = _run_ai_for_event(ev, df)
         rebuilt_themes += tc
         rebuilt_hits += hc
         bar.progress(min(100, int(i * 100 / total)))
-    status.success(f"重算完成：事件 {total} 筆，主題數累計 {rebuilt_themes}，命中累計 {rebuilt_hits}")
+    status.success(f"閲嶇畻瀹屾垚锛氫簨浠?{total} 绛嗭紝涓婚鏁哥疮瑷?{rebuilt_themes}锛屽懡涓疮瑷?{rebuilt_hits}")
     return rebuilt_themes, rebuilt_hits
 
 
@@ -481,28 +502,28 @@ def main() -> None:
     df = b.schema_df.copy()
     filtered_df = _apply_filters(df, st.session_state["filters"])
 
-    st.title("📈 美股清單與筆記系統")
-    st.caption(f"資料來源：{b.source_name} | Hash：`{b.source_hash}` | 載入時間：{b.loaded_at}")
+    st.title("馃搱 缇庤偂娓呭柈鑸囩瓎瑷樼郴绲?)
+    st.caption(f"璩囨枡渚嗘簮锛歿b.source_name} | Hash锛歚{b.source_hash}` | 杓夊叆鏅傞枔锛歿b.loaded_at}")
 
     with st.sidebar:
-        st.subheader("資料與權限")
-        uploaded = st.file_uploader("上傳新 Excel", type=["xlsx"])
-        if st.button("載入上傳檔案", disabled=uploaded is None):
+        st.subheader("璩囨枡鑸囨瑠闄?)
+        uploaded = st.file_uploader("涓婂偝鏂?Excel", type=["xlsx"])
+        if st.button("杓夊叆涓婂偝妾旀", disabled=uploaded is None):
             st.session_state["bundle"] = load_bundle_from_upload(uploaded)
             st.rerun()
 
         pwd = st.secrets.get("EDITOR_PASSWORD", "")
-        ip = st.text_input("編輯密碼", type="password")
-        if st.button("登入編輯模式"):
+        ip = st.text_input("绶ㄨ集瀵嗙⒓", type="password")
+        if st.button("鐧诲叆绶ㄨ集妯″紡"):
             st.session_state["editor_authed"] = bool(pwd and ip == pwd)
             st.rerun()
-        if _is_editor() and st.button("登出編輯模式"):
+        if _is_editor() and st.button("鐧诲嚭绶ㄨ集妯″紡"):
             st.session_state["editor_authed"] = False
             st.rerun()
-        st.caption("你目前可編輯" if _is_editor() else "你目前為訪客只讀")
+        st.caption("浣犵洰鍓嶅彲绶ㄨ集" if _is_editor() else "浣犵洰鍓嶇偤瑷鍙畝")
 
         st.markdown("---")
-        st.subheader("篩選")
+        st.subheader("绡╅伕")
         all_sectors = sorted([x for x in df["sector"].fillna("").astype(str).unique().tolist() if x.strip()])
         all_subsectors = sorted([x for x in df["subsector"].fillna("").astype(str).unique().tolist() if x.strip()])
         all_exchanges = sorted([x for x in df["exchange"].fillna("").astype(str).unique().tolist() if x.strip()])
@@ -514,15 +535,15 @@ def main() -> None:
 
         f0 = st.session_state["filters"]
         with st.form("sidebar_filter_form"):
-            fk = st.text_input("關鍵字搜尋（代號/公司/簡介/子板塊/標籤）", value=f0.get("keyword", ""))
-            fs = st.multiselect("大分類", all_sectors, default=[x for x in f0.get("sectors", []) if x in all_sectors])
-            fss = st.multiselect("最終子分類", all_subsectors, default=[x for x in f0.get("subsectors", []) if x in all_subsectors])
-            fe = st.multiselect("交易所", all_exchanges, default=[x for x in f0.get("exchanges", []) if x in all_exchanges])
-            ft = st.multiselect("AI 小分類標籤", all_ai_tags, default=[x for x in f0.get("ai_tags", []) if x in all_ai_tags])
-            fm = st.radio("標籤匹配模式", ["任一命中", "全部命中"], index=0 if f0.get("tag_mode", "any") == "any" else 1, horizontal=True)
+            fk = st.text_input("闂滈嵉瀛楁悳灏嬶紙浠ｈ櫉/鍏徃/绨′粙/瀛愭澘濉?妯欑堡锛?, value=f0.get("keyword", ""))
+            fs = st.multiselect("澶у垎椤?, all_sectors, default=[x for x in f0.get("sectors", []) if x in all_sectors])
+            fss = st.multiselect("鏈€绲傚瓙鍒嗛", all_subsectors, default=[x for x in f0.get("subsectors", []) if x in all_subsectors])
+            fe = st.multiselect("浜ゆ槗鎵€", all_exchanges, default=[x for x in f0.get("exchanges", []) if x in all_exchanges])
+            ft = st.multiselect("AI 灏忓垎椤炴绫?, all_ai_tags, default=[x for x in f0.get("ai_tags", []) if x in all_ai_tags])
+            fm = st.radio("妯欑堡鍖归厤妯″紡", ["浠讳竴鍛戒腑", "鍏ㄩ儴鍛戒腑"], index=0 if f0.get("tag_mode", "any") == "any" else 1, horizontal=True)
             c1, c2 = st.columns(2)
-            ap = c1.form_submit_button("套用篩選", use_container_width=True)
-            cl = c2.form_submit_button("清空篩選", use_container_width=True)
+            ap = c1.form_submit_button("濂楃敤绡╅伕", use_container_width=True)
+            cl = c2.form_submit_button("娓呯┖绡╅伕", use_container_width=True)
             if cl:
                 st.session_state["filters"] = {"keyword": "", "sectors": [], "subsectors": [], "exchanges": [], "ai_tags": [], "tag_mode": "any"}
                 st.rerun()
@@ -533,74 +554,101 @@ def main() -> None:
                     "subsectors": fss,
                     "exchanges": fe,
                     "ai_tags": ft,
-                    "tag_mode": "all" if fm == "全部命中" else "any",
+                    "tag_mode": "all" if fm == "鍏ㄩ儴鍛戒腑" else "any",
                 }
                 st.rerun()
-        st.caption(f"篩選後筆數：{len(filtered_df):,}")
+        st.caption(f"绡╅伕寰岀瓎鏁革細{len(filtered_df):,}")
 
-    tabs = st.tabs(["股票清單", "時事事件筆記", "時事主題", "字典/規則", "設定/同步"])
+    tabs = st.tabs(["鑲＄エ娓呭柈", "鏅備簨浜嬩欢绛嗚", "鏅備簨涓婚", "瀛楀吀/瑕忓墖", "瑷畾/鍚屾"])
 
     with tabs[0]:
-        k = st.text_input("頁內搜尋（代號/公司/簡介/子板塊/標籤）", "")
+        k = st.text_input("闋佸収鎼滃皨锛堜唬铏?鍏徃/绨′粙/瀛愭澘濉?妯欑堡锛?, "")
         show = filtered_df.copy()
         if k.strip():
             show = show[show["search_blob"].str.contains(k.strip().lower(), na=False)]
         st.dataframe(
             show[["ticker", "company_name", "exchange", "sector", "subsector", "tags", "summary"]].rename(
-                columns={"ticker": "代號", "company_name": "公司", "exchange": "交易所", "sector": "大分類", "subsector": "最終子分類", "tags": "AI標籤", "summary": "簡介"}
+                columns={"ticker": "浠ｈ櫉", "company_name": "鍏徃", "exchange": "浜ゆ槗鎵€", "sector": "澶у垎椤?, "subsector": "鏈€绲傚瓙鍒嗛", "tags": "AI妯欑堡", "summary": "绨′粙"}
             ),
             use_container_width=True,
             hide_index=True,
         )
-        t = st.selectbox("個股筆記代號", sorted(show["ticker"].tolist())[:800] if len(show) else [])
+        export_df = show[["ticker", "company_name", "exchange", "sector", "subsector", "tags", "summary"]].copy()
+        export_df["tv_symbol"] = export_df.apply(lambda r: _to_tv_symbol(r.get("exchange", ""), r.get("ticker", "")), axis=1)
+        export_df = export_df[["tv_symbol", "ticker", "exchange", "company_name", "sector", "subsector", "tags", "summary"]].rename(
+            columns={
+                "tv_symbol": "tradingview_symbol",
+                "tags": "ai_tags",
+                "summary": "summary_zh_tw",
+            }
+        )
+        cexp1, cexp2 = st.columns(2)
+        cexp1.download_button(
+            "匯出篩選結果 CSV（TradingView）",
+            export_df.to_csv(index=False, encoding="utf-8-sig"),
+            file_name=f"tv_watchlist_{datetime.now():%Y%m%d_%H%M%S}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+        xbuf = BytesIO()
+        with pd.ExcelWriter(xbuf, engine="openpyxl") as xw:
+            export_df.to_excel(xw, index=False, sheet_name="watchlist")
+        cexp2.download_button(
+            "匯出篩選結果 Excel",
+            xbuf.getvalue(),
+            file_name=f"tv_watchlist_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        t = st.selectbox("鍊嬭偂绛嗚浠ｈ櫉", sorted(show["ticker"].tolist())[:800] if len(show) else [])
         if t:
             notes = list_stock_notes(ticker=t)
-            st.caption(f"{t} 個股筆記：{len(notes)} 筆")
+            st.caption(f"{t} 鍊嬭偂绛嗚锛歿len(notes)} 绛?)
             if _is_editor():
                 with st.form("add_stock_note_form"):
-                    nd = st.date_input("日期", value=date.today())
-                    nt = st.text_input("標題")
-                    ndt = st.text_area("內容")
-                    ni = st.selectbox("方向", ["利多", "利空", "中性"])
-                    if st.form_submit_button("新增個股筆記"):
+                    nd = st.date_input("鏃ユ湡", value=date.today())
+                    nt = st.text_input("妯欓")
+                    ndt = st.text_area("鍏у")
+                    ni = st.selectbox("鏂瑰悜", ["鍒╁", "鍒╃┖", "涓€?])
+                    if st.form_submit_button("鏂板鍊嬭偂绛嗚"):
                         add_stock_note(t, str(nd), nt, ndt, ni, 0.6, "", [])
                         st.rerun()
             if notes:
                 st.dataframe(_safe_df_rows(notes, ["note_date", "impact", "event_title", "event_detail"]), use_container_width=True, hide_index=True)
 
     with tabs[1]:
-        st.subheader("RSS v2 新聞匯入")
-        default_kw = "美伊戰爭, 以伊戰爭, 中東衝突, 荷姆茲海峽, 石油, 天然氣, 有色金屬, 化肥, spacex, 腦機接口, 量子, gtc"
+        st.subheader("RSS v2 鏂拌仦鍖叆")
+        default_kw = "缇庝紛鎴扮埈, 浠ヤ紛鎴扮埈, 涓澅琛濈獊, 鑽峰鑼叉捣宄? 鐭虫补, 澶╃劧姘? 鏈夎壊閲戝爆, 鍖栬偉, spacex, 鑵︽鎺ュ彛, 閲忓瓙, gtc"
         saved_kw = get_meta("rss_keywords", default_kw)
         saved_feeds = get_meta("rss_feeds", "\n".join(DEFAULT_RSS_FEEDS))
-        kw_text = st.text_area("關鍵字（逗號分隔）", value=saved_kw, key="rss_kw")
-        feeds_text = st.text_area("RSS feeds（每行一個）", value=saved_feeds, height=120, key="rss_feeds")
+        kw_text = st.text_area("闂滈嵉瀛楋紙閫楄櫉鍒嗛殧锛?, value=saved_kw, key="rss_kw")
+        feeds_text = st.text_area("RSS feeds锛堟瘡琛屼竴鍊嬶級", value=saved_feeds, height=120, key="rss_feeds")
         s1, s2 = st.columns(2)
-        if s1.button("保存 RSS 設定", key="btn_save_rss_cfg"):
+        if s1.button("淇濆瓨 RSS 瑷畾", key="btn_save_rss_cfg"):
             set_meta("rss_keywords", kw_text.strip())
             set_meta("rss_feeds", feeds_text.strip())
-            st.success("已保存 RSS 設定")
-        if s2.button("保存並同步到 GitHub", key="btn_save_rss_cfg_sync", disabled=not _is_editor()):
+            st.success("宸蹭繚瀛?RSS 瑷畾")
+        if s2.button("淇濆瓨涓﹀悓姝ュ埌 GitHub", key="btn_save_rss_cfg_sync", disabled=not _is_editor()):
             set_meta("rss_keywords", kw_text.strip())
             set_meta("rss_feeds", feeds_text.strip())
             ok, msg = _sync_notes_to_github_now()
             if ok:
-                st.success("已保存並同步到 GitHub")
+                st.success("宸蹭繚瀛樹甫鍚屾鍒?GitHub")
             else:
-                st.error(f"同步失敗：{msg}")
+                st.error(f"鍚屾澶辨晽锛歿msg}")
         raw_keywords = [x.strip() for x in kw_text.split(",") if x.strip()]
         feeds = [x.strip() for x in feeds_text.splitlines() if x.strip()]
         lookback_for_refetch = int(st.session_state.get("rss_lookback", 48))
         max_items_for_refetch = int(st.session_state.get("rss_max_items", 30))
         custom = {r["keyword"]: r["expansions_list"] for r in list_keyword_synonyms() if r.get("enabled", True)}
         expanded, kmap = expand_keywords(raw_keywords, custom_synonyms=custom)
-        st.caption(f"擴展關鍵字：{len(expanded)}（原始：{len(raw_keywords)}）")
+        st.caption(f"鎿村睍闂滈嵉瀛楋細{len(expanded)}锛堝師濮嬶細{len(raw_keywords)}锛?)
 
         unmapped = [k for k in raw_keywords if not kmap.get(k)]
-        with st.expander("查看/管理擴展關鍵字", expanded=False):
+        with st.expander("鏌ョ湅/绠＄悊鎿村睍闂滈嵉瀛?, expanded=False):
             if unmapped:
-                st.warning(f"未映射關鍵字：{', '.join(unmapped)}")
-                if st.button("AI 補全未映射關鍵字並寫入字典"):
+                st.warning(f"鏈槧灏勯棞閸靛瓧锛歿', '.join(unmapped)}")
+                if st.button("AI 瑁滃叏鏈槧灏勯棞閸靛瓧涓﹀鍏ュ瓧鍏?):
                     added = 0
                     last_err = ""
                     for uk in unmapped[:10]:
@@ -616,11 +664,11 @@ def main() -> None:
                         custom2 = {r["keyword"]: r["expansions_list"] for r in list_keyword_synonyms() if r.get("enabled", True)}
                         items2 = fetch_rss_items(raw_keywords, feeds, lookback_for_refetch, max_items_for_refetch, custom_synonyms=custom2)
                         st.session_state["rss_items"] = [x.__dict__ for x in items2]
-                        st.success(f"已補全 {added} 個關鍵字，並已自動重抓 RSS。")
+                        st.success(f"宸茶鍏?{added} 鍊嬮棞閸靛瓧锛屼甫宸茶嚜鍕曢噸鎶?RSS銆?)
                         st.rerun()
                     else:
-                        st.error(f"目前無法補全：{last_err or '模型未回傳可用結果'}")
-            compact = st.checkbox("精簡顯示（每詞只顯示前 3 個）", value=True)
+                        st.error(f"鐩墠鐒℃硶瑁滃叏锛歿last_err or '妯″瀷鏈洖鍌冲彲鐢ㄧ祼鏋?}")
+            compact = st.checkbox("绮剧啊椤ず锛堟瘡瑭炲彧椤ず鍓?3 鍊嬶級", value=True)
             for kx, vals in kmap.items():
                 if not vals:
                     continue
@@ -632,19 +680,19 @@ def main() -> None:
                     st.caption(f"{kx} -> {', '.join(vals)}")
 
         c1, c2, c3 = st.columns(3)
-        lookback = c1.number_input("回看小時", min_value=6, max_value=240, value=48, step=6, key="rss_lookback")
-        max_items = c2.number_input("最多新聞數", min_value=10, max_value=300, value=30, step=10, key="rss_max_items")
-        auto_ai = c3.checkbox("匯入後自動 AI 映射", value=True)
-        auto_daily = st.checkbox("每日自動抓 RSS（每天首次開站自動執行一次）", value=(str(get_meta("rss_daily_auto_enabled", "0")) == "1"))
+        lookback = c1.number_input("鍥炵湅灏忔檪", min_value=6, max_value=240, value=48, step=6, key="rss_lookback")
+        max_items = c2.number_input("鏈€澶氭柊鑱炴暩", min_value=10, max_value=300, value=30, step=10, key="rss_max_items")
+        auto_ai = c3.checkbox("鍖叆寰岃嚜鍕?AI 鏄犲皠", value=True)
+        auto_daily = st.checkbox("姣忔棩鑷嫊鎶?RSS锛堟瘡澶╅娆￠枊绔欒嚜鍕曞煼琛屼竴娆★級", value=(str(get_meta("rss_daily_auto_enabled", "0")) == "1"))
         set_meta("rss_daily_auto_enabled", "1" if auto_daily else "0")
-        st.caption(f"每日自動：{'開啟' if auto_daily else '關閉'} | 上次執行：{get_meta('rss_daily_last_run_date', '-')}")
+        st.caption(f"姣忔棩鑷嫊锛歿'闁嬪暉' if auto_daily else '闂滈枆'} | 涓婃鍩疯锛歿get_meta('rss_daily_last_run_date', '-')}")
 
         ran, msg = _maybe_daily_auto_rss(raw_keywords, feeds, int(lookback), int(max_items), auto_ai, custom, df)
         if ran:
-            st.success(f"今日自動抓取完成：{msg}")
+            st.success(f"浠婃棩鑷嫊鎶撳彇瀹屾垚锛歿msg}")
 
         d1, d2 = st.columns(2)
-        if d1.button("抓取 RSS"):
+        if d1.button("鎶撳彇 RSS"):
             items = fetch_rss_items(raw_keywords, feeds, int(lookback), int(max_items), custom_synonyms=custom)
             st.session_state["rss_items"] = [x.__dict__ for x in items]
 
@@ -652,98 +700,98 @@ def main() -> None:
         if rss_items:
             rdf = pd.DataFrame(rss_items)
             st.dataframe(_safe_df_rows(rdf.to_dict("records"), ["published_at", "source", "title", "title_zh_tw", "matched_keywords", "matched_expanded", "link"]), use_container_width=True, hide_index=True)
-            q = st.text_input("在已抓取新聞中搜尋（中英）", "")
+            q = st.text_input("鍦ㄥ凡鎶撳彇鏂拌仦涓悳灏嬶紙涓嫳锛?, "")
             rdf2 = rdf.copy()
             if q.strip():
                 ql = q.strip().lower()
                 rdf2 = rdf2[rdf2["title"].astype(str).str.lower().str.contains(ql, na=False) | rdf2["title_zh_tw"].astype(str).str.lower().str.contains(ql, na=False)]
-            picks = st.multiselect("選擇要匯入的新聞", rdf2["title"].tolist(), default=rdf2["title"].tolist()[: min(20, len(rdf2))])
-            if d2.button("匯入選中新聞"):
+            picks = st.multiselect("閬告搰瑕佸尟鍏ョ殑鏂拌仦", rdf2["title"].tolist(), default=rdf2["title"].tolist()[: min(20, len(rdf2))])
+            if d2.button("鍖叆閬镐腑鏂拌仦"):
                 imported, merged, skipped, mapped = _import_rss_rows(rdf2, picks, auto_ai, df, show_progress=True)
-                st.success(f"新增 {imported} / 合併 {merged} / 略過 {skipped} / AI 命中 {mapped}")
+                st.success(f"鏂板 {imported} / 鍚堜降 {merged} / 鐣ラ亷 {skipped} / AI 鍛戒腑 {mapped}")
                 st.rerun()
 
-        st.subheader("現有時事事件")
+        st.subheader("鐝炬湁鏅備簨浜嬩欢")
         events = list_macro_notes()
         st.dataframe(_safe_df_rows(events, ["id", "note_date", "impact", "event_title", "source_url"]), use_container_width=True, hide_index=True)
         if _is_editor() and events:
-            eid = st.selectbox("選擇事件 ID 套用 AI", [x["id"] for x in events])
-            if st.button("對選中事件跑 AI 映射"):
+            eid = st.selectbox("閬告搰浜嬩欢 ID 濂楃敤 AI", [x["id"] for x in events])
+            if st.button("灏嶉伕涓簨浠惰窇 AI 鏄犲皠"):
                 row = next(x for x in events if x["id"] == eid)
                 tc, hc = _run_ai_for_event(row, df)
-                st.success(f"主題 {tc} 個，命中 {hc} 筆")
+                st.success(f"涓婚 {tc} 鍊嬶紝鍛戒腑 {hc} 绛?)
                 st.rerun()
 
     with tabs[2]:
-        st.subheader("時事主題（熱度排名）")
-        tq = st.text_input("主題搜尋", "")
+        st.subheader("鏅備簨涓婚锛堢啽搴︽帓鍚嶏級")
+        tq = st.text_input("涓婚鎼滃皨", "")
         rows = list_themes_ranked()
         if tq.strip():
             rows = [x for x in rows if tq.strip().lower() in str(x["theme"]).lower()]
         st.dataframe(
             _safe_df_rows(rows, ["theme", "heat_score", "stock_count", "hit_count", "recent_date", "bull_count", "bear_count", "neutral_count"]).rename(
                 columns={
-                    "theme": "主題",
-                    "heat_score": "熱度分數",
-                    "stock_count": "股票數",
-                    "hit_count": "命中數",
-                    "recent_date": "最近日期",
-                    "bull_count": "利多",
-                    "bear_count": "利空",
-                    "neutral_count": "中性",
+                    "theme": "涓婚",
+                    "heat_score": "鐔卞害鍒嗘暩",
+                    "stock_count": "鑲＄エ鏁?,
+                    "hit_count": "鍛戒腑鏁?,
+                    "recent_date": "鏈€杩戞棩鏈?,
+                    "bull_count": "鍒╁",
+                    "bear_count": "鍒╃┖",
+                    "neutral_count": "涓€?,
                 }
             ),
             use_container_width=True,
             hide_index=True,
         )
-        with st.expander("計算說明", expanded=False):
+        with st.expander("瑷堢畻瑾槑", expanded=False):
             st.markdown(
-                "- `股票數`：主題下去重後的 ticker 數量。\n"
-                "- `命中數`：主題命中總筆數（同一 ticker 可因不同事件重複）。\n"
-                "- 主題命中由事件 AI + 守門規則共同決定。\n"
-                "- 建議先按 `最低 confidence` 再觀察結果。"
+                "- `鑲＄エ鏁竊锛氫富椤屼笅鍘婚噸寰岀殑 ticker 鏁搁噺銆俓n"
+                "- `鍛戒腑鏁竊锛氫富椤屽懡涓附绛嗘暩锛堝悓涓€ ticker 鍙洜涓嶅悓浜嬩欢閲嶈锛夈€俓n"
+                "- 涓婚鍛戒腑鐢变簨浠?AI + 瀹堥杸瑕忓墖鍏卞悓姹哄畾銆俓n"
+                "- 寤鸿鍏堟寜 `鏈€浣?confidence` 鍐嶈瀵熺祼鏋溿€?
             )
         if rows:
-            picked = st.selectbox("查看主題", [x["theme"] for x in rows])
+            picked = st.selectbox("鏌ョ湅涓婚", [x["theme"] for x in rows])
             c1, c2, c3 = st.columns(3)
-            if c1.button("清理選中主題命中", key="btn_clear_theme_hits", disabled=not _is_editor()):
+            if c1.button("娓呯悊閬镐腑涓婚鍛戒腑", key="btn_clear_theme_hits", disabled=not _is_editor()):
                 n = delete_event_theme_hits_by_theme(picked)
-                st.success(f"已清理 {picked} 命中：{n} 筆")
+                st.success(f"宸叉竻鐞?{picked} 鍛戒腑锛歿n} 绛?)
                 st.rerun()
-            if c2.button("清理全部主題命中", key="btn_clear_all_hits", disabled=not _is_editor()):
+            if c2.button("娓呯悊鍏ㄩ儴涓婚鍛戒腑", key="btn_clear_all_hits", disabled=not _is_editor()):
                 n = clear_all_event_theme_hits()
-                st.success(f"已清理全部命中：{n} 筆")
+                st.success(f"宸叉竻鐞嗗叏閮ㄥ懡涓細{n} 绛?)
                 st.rerun()
-            if c3.button("重跑全部事件 AI", key="btn_rebuild_all_hits", disabled=not _is_editor()):
+            if c3.button("閲嶈窇鍏ㄩ儴浜嬩欢 AI", key="btn_rebuild_all_hits", disabled=not _is_editor()):
                 _rebuild_all_theme_hits(df)
                 st.rerun()
             if not _is_editor():
-                st.caption("訪客模式可查看；進入編輯模式後可使用清理/重跑按鈕。")
+                st.caption("瑷妯″紡鍙煡鐪嬶紱閫插叆绶ㄨ集妯″紡寰屽彲浣跨敤娓呯悊/閲嶈窇鎸夐垥銆?)
             hits = list_event_theme_hits(theme_keyword=picked)
             st.dataframe(_safe_df_rows(hits, ["ticker", "theme", "impact", "confidence", "reason", "note_date", "event_title"]), use_container_width=True, hide_index=True)
 
     with tabs[3]:
-        st.subheader("字典 / 規則")
+        st.subheader("瀛楀吀 / 瑕忓墖")
         with st.form("kw_add_form"):
-            k = st.text_input("關鍵字")
-            ex = st.text_input("擴展詞（用 | 分隔）")
-            en = st.checkbox("啟用", value=True)
-            if st.form_submit_button("新增/更新關鍵字"):
+            k = st.text_input("闂滈嵉瀛?)
+            ex = st.text_input("鎿村睍瑭烇紙鐢?| 鍒嗛殧锛?)
+            en = st.checkbox("鍟熺敤", value=True)
+            if st.form_submit_button("鏂板/鏇存柊闂滈嵉瀛?):
                 upsert_keyword_synonym(k, [x.strip() for x in ex.split("|") if x.strip()], en)
                 st.rerun()
         kws = list_keyword_synonyms()
         if kws:
             st.dataframe(_safe_df_rows(kws, ["keyword", "expansions", "enabled", "updated_at"]), use_container_width=True, hide_index=True)
-            dk = st.selectbox("刪除關鍵字", [""] + [x["keyword"] for x in kws])
-            if st.button("刪除關鍵字") and dk:
+            dk = st.selectbox("鍒櫎闂滈嵉瀛?, [""] + [x["keyword"] for x in kws])
+            if st.button("鍒櫎闂滈嵉瀛?) and dk:
                 delete_keyword_synonym(dk)
                 st.rerun()
 
         with st.form("theme_rule_form"):
-            raw = st.text_input("原始主題")
-            can = st.text_input("正規主題")
-            en2 = st.checkbox("啟用規則", value=True)
-            if st.form_submit_button("新增/更新主題規則"):
+            raw = st.text_input("鍘熷涓婚")
+            can = st.text_input("姝ｈ涓婚")
+            en2 = st.checkbox("鍟熺敤瑕忓墖", value=True)
+            if st.form_submit_button("鏂板/鏇存柊涓婚瑕忓墖"):
                 upsert_theme_rule(raw, can, en2)
                 st.rerun()
         rules = list_theme_rules()
@@ -751,33 +799,34 @@ def main() -> None:
             st.dataframe(_safe_df_rows(rules, ["raw_theme", "canonical_theme", "enabled", "updated_at"]), use_container_width=True, hide_index=True)
 
         cur = get_event_min_confidence()
-        nv = st.slider("最低信心閾值", 0.0, 1.0, float(cur), 0.05)
-        if st.button("保存閾值"):
+        nv = st.slider("鏈€浣庝俊蹇冮柧鍊?, 0.0, 1.0, float(cur), 0.05)
+        if st.button("淇濆瓨闁惧€?):
             set_event_min_confidence(float(nv))
-            st.success("已保存")
+            st.success("宸蹭繚瀛?)
 
     with tabs[4]:
-        st.subheader("設定 / 同步")
-        st.caption(f"本地 DB：{DB_PATH}")
+        st.subheader("瑷畾 / 鍚屾")
+        st.caption(f"鏈湴 DB锛歿DB_PATH}")
         payload = export_json_text()
-        st.download_button("下載本地備份", payload.encode("utf-8"), "notes_export.json", "application/json")
+        st.download_button("涓嬭級鏈湴鍌欎唤", payload.encode("utf-8"), "notes_export.json", "application/json")
         token = st.secrets.get("GITHUB_TOKEN", "")
         repo = st.secrets.get("GITHUB_REPO", "")
         branch = st.secrets.get("GITHUB_BRANCH", "main")
         path = st.secrets.get("GITHUB_NOTES_PATH", "data/notes_export.json")
         if token and repo:
             c1, c2 = st.columns(2)
-            if c1.button("同步到 GitHub", disabled=not _is_editor()):
+            if c1.button("鍚屾鍒?GitHub", disabled=not _is_editor()):
                 upsert_file_content(token, repo, path, branch, payload, f"Update notes backup {datetime.now():%Y-%m-%d %H:%M:%S}")
-                st.success("已同步")
-            if c2.button("從 GitHub 還原", disabled=not _is_editor()):
+                st.success("宸插悓姝?)
+            if c2.button("寰?GitHub 閭勫師", disabled=not _is_editor()):
                 txt, _ = get_file_content(token, repo, path, branch)
                 if txt.strip():
                     import_json_text(txt, replace=True)
-                    st.success("已還原")
+                    st.success("宸查倓鍘?)
                     st.rerun()
-        st.caption(f"上次同步：{get_meta('last_sync_to_github', '-')}")
+        st.caption(f"涓婃鍚屾锛歿get_meta('last_sync_to_github', '-')}")
 
 
 if __name__ == "__main__":
     main()
+
