@@ -11,7 +11,13 @@ import streamlit as st
 from openai import OpenAI
 
 from ai_event_theme import classify_event_impact
-from data_loader import DEFAULT_INPUT_PATH, DataBundle, load_bundle_from_path, load_bundle_from_upload
+from data_loader import (
+    DEFAULT_INPUT_CANDIDATES,
+    DEFAULT_INPUT_PATH,
+    DataBundle,
+    load_bundle_from_path,
+    load_bundle_from_upload,
+)
 from github_sync import get_file_content, upsert_file_content
 from notes_store import (
     DB_PATH,
@@ -47,6 +53,16 @@ st.set_page_config(page_title="美股清單與筆記系統", page_icon="📈", l
 @st.cache_data(show_spinner=False)
 def _load_default(path_str: str) -> DataBundle:
     return load_bundle_from_path(Path(path_str))
+
+
+def _should_refresh_default_bundle(bundle: DataBundle, expected_default: Path) -> bool:
+    current_source = str(getattr(bundle, "source_name", "") or "").strip()
+    if not current_source:
+        return True
+    if Path(current_source).name == expected_default.name:
+        return False
+    old_default_names = {p.name for p in DEFAULT_INPUT_CANDIDATES if p.name != expected_default.name}
+    return Path(current_source).name in old_default_names
 
 
 def _is_editor() -> bool:
@@ -465,8 +481,11 @@ def _rebuild_all_theme_hits(df: pd.DataFrame) -> tuple[int, int]:
 
 def main() -> None:
     init_db()
+    expected_default = Path(DEFAULT_INPUT_PATH)
     if "bundle" not in st.session_state:
-        st.session_state["bundle"] = _load_default(str(DEFAULT_INPUT_PATH))
+        st.session_state["bundle"] = _load_default(str(expected_default))
+    elif _should_refresh_default_bundle(st.session_state["bundle"], expected_default):
+        st.session_state["bundle"] = _load_default(str(expected_default))
     if "filters" not in st.session_state:
         st.session_state["filters"] = {
             "keyword": "",
