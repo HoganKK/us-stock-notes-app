@@ -676,7 +676,7 @@ def main() -> None:
 
         ex1, ex2 = st.columns(2)
         ex1.download_button(
-            "匯出篩選結果 CSV（TradingView）",
+            "匯出篩選結果 CSV",
             export_df.to_csv(index=False, encoding="utf-8-sig"),
             file_name=f"tv_watchlist_{datetime.now():%Y%m%d_%H%M%S}.csv",
             mime="text/csv",
@@ -696,7 +696,7 @@ def main() -> None:
         tv_symbols = list(dict.fromkeys(tv_symbols))
         tv_txt = "###WATCHLIST," + ",".join(tv_symbols)
         st.download_button(
-            "Export TradingView TXT",
+            "匯出TradingView的TXT檔案(匯入TV清單)",
             tv_txt.encode("utf-8-sig"),
             file_name=f"tv_watchlist_{datetime.now():%Y%m%d_%H%M%S}.txt",
             mime="text/plain",
