@@ -676,12 +676,14 @@ def main() -> None:
             active_parts.append(f"AI標籤：{', '.join(f0['ai_tags'][:3])}" + ("..." if len(f0["ai_tags"]) > 3 else ""))
         st.caption("已套用篩選：" + " | ".join(active_parts) if active_parts else "目前未套用任何篩選。")
 
+        stock_table_height = 760 if len(show) >= 20 else max(260, 110 + len(show) * 32)
         st.dataframe(
             show[["ticker", "company_name", "exchange", "sector", "subsector", "tags", "summary"]].rename(
                 columns={"ticker": "代號", "company_name": "公司", "exchange": "交易所", "sector": "大分類", "subsector": "最終子分類", "tags": "AI標籤", "summary": "簡介"}
             ),
             use_container_width=True,
             hide_index=True,
+            height=stock_table_height,
         )
         export_df = show[["ticker", "company_name", "exchange", "sector", "subsector", "tags", "summary"]].copy()
 
