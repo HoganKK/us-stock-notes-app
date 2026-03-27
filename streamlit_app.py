@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import date, datetime
 from io import BytesIO
@@ -67,6 +68,20 @@ def _should_refresh_default_bundle(bundle: DataBundle, expected_default: Path) -
 
 def _is_editor() -> bool:
     return bool(st.session_state.get("editor_authed", False))
+
+
+def _editor_password() -> str:
+    candidates = [
+        str(st.secrets.get("EDITOR_PASSWORD", "") or ""),
+        str(st.secrets.get("editor_password", "") or ""),
+        str(st.secrets.get("ADMIN_PASSWORD", "") or ""),
+        str(os.getenv("EDITOR_PASSWORD", "") or ""),
+    ]
+    for value in candidates:
+        cleaned = value.strip()
+        if cleaned:
+            return cleaned
+    return ""
 
 
 def _safe_df_rows(rows: list[dict], columns: list[str]) -> pd.DataFrame:
@@ -556,11 +571,27 @@ def main() -> None:
             st.session_state["bundle"] = load_bundle_from_upload(uploaded)
             st.rerun()
 
-        pwd = st.secrets.get("EDITOR_PASSWORD", "")
-        ip = st.text_input("編輯密碼", type="password")
-        if st.button("登入編輯模式"):
-            st.session_state["editor_authed"] = bool(pwd and ip == pwd)
-            st.rerun()
+        editor_login_error = ""
+        configured_pwd = _editor_password()
+        if _is_editor():
+            st.success("已登入編輯模式")
+        else:
+            with st.form("editor_login_form"):
+                ip = st.text_input("編輯密碼", type="password")
+                login_clicked = st.form_submit_button("登入編輯模式")
+            if login_clicked:
+                if not configured_pwd:
+                    editor_login_error = "尚未設定編輯密碼，請先到 Streamlit Secrets 設定 `EDITOR_PASSWORD`。"
+                elif ip.strip() == configured_pwd:
+                    st.session_state["editor_authed"] = True
+                    st.rerun()
+                else:
+                    editor_login_error = "密碼不正確，請再試一次。"
+            if editor_login_error:
+                st.error(editor_login_error)
+            elif not configured_pwd:
+                st.caption("目前未偵測到編輯密碼設定。")
+
         if _is_editor() and st.button("登出編輯模式"):
             st.session_state["editor_authed"] = False
             st.rerun()
