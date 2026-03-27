@@ -421,6 +421,15 @@ def _build_filter_options(df: pd.DataFrame) -> tuple[list[str], list[str], list[
     return all_sectors, all_subsectors, all_exchanges, all_ai_tags
 
 
+def _filter_option_pool(options: list[str], query: str, selected: list[str]) -> list[str]:
+    q = str(query or "").strip().lower()
+    base = options
+    if q:
+        base = [x for x in options if q in str(x).lower()]
+    merged = list(dict.fromkeys([*(selected or []), *base]))
+    return merged
+
+
 def _import_rss_rows(
     rdf2: pd.DataFrame,
     picks: list[str],
@@ -602,6 +611,25 @@ def main() -> None:
     with tabs[0]:
         st.subheader("股票篩選")
         f0 = st.session_state["filters"]
+        selected_subsectors = [x for x in f0.get("subsectors", []) if x in all_subsectors]
+        selected_ai_tags = [x for x in f0.get("ai_tags", []) if x in all_ai_tags]
+        option_search_row = st.columns(2)
+        subsector_option_query = option_search_row[0].text_input(
+            "子分類候選搜尋",
+            value=st.session_state.get("subsector_option_query", ""),
+            key="subsector_option_query",
+            placeholder="例如：光通訊 / 太空 / 軟件",
+        )
+        ai_tag_option_query = option_search_row[1].text_input(
+            "AI標籤候選搜尋",
+            value=st.session_state.get("ai_tag_option_query", ""),
+            key="ai_tag_option_query",
+            placeholder="例如：光通訊 / 半導體 / 核能",
+        )
+        visible_subsectors = _filter_option_pool(all_subsectors, subsector_option_query, selected_subsectors)
+        visible_ai_tags = _filter_option_pool(all_ai_tags, ai_tag_option_query, selected_ai_tags)
+        st.caption(f"子分類候選：{len(visible_subsectors):,} 個 | AI標籤候選：{len(visible_ai_tags):,} 個")
+
         with st.form("stock_list_filter_form"):
             row1 = st.columns([1.4, 1, 1])
             fk = row1[0].text_input("關鍵字搜尋（代號/公司/簡介/子板塊/標籤）", value=f0.get("keyword", ""))
@@ -609,8 +637,8 @@ def main() -> None:
             fe = row1[2].multiselect("交易所", all_exchanges, default=[x for x in f0.get("exchanges", []) if x in all_exchanges])
 
             row2 = st.columns(2)
-            fss = row2[0].multiselect("最終子分類", all_subsectors, default=[x for x in f0.get("subsectors", []) if x in all_subsectors])
-            ft = row2[1].multiselect("AI 小分類標籤", all_ai_tags, default=[x for x in f0.get("ai_tags", []) if x in all_ai_tags])
+            fss = row2[0].multiselect("最終子分類", visible_subsectors, default=selected_subsectors)
+            ft = row2[1].multiselect("AI 小分類標籤", visible_ai_tags, default=selected_ai_tags)
 
             row3 = st.columns([1.2, 0.8, 0.8, 1.2])
             fm = row3[0].radio("標籤匹配模式", ["任一命中", "全部命中"], index=0 if f0.get("tag_mode", "any") == "any" else 1, horizontal=True)
@@ -620,6 +648,8 @@ def main() -> None:
 
             if cl:
                 st.session_state["filters"] = _default_filters()
+                st.session_state["subsector_option_query"] = ""
+                st.session_state["ai_tag_option_query"] = ""
                 st.rerun()
             if ap:
                 st.session_state["filters"] = {
