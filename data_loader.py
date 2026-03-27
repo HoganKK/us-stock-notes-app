@@ -14,6 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 
 DEFAULT_INPUT_CANDIDATES = [
+    OUTPUT_DIR / "us_stocks_investable_themes_zh_tw_second_opinion_preview.xlsx",
     OUTPUT_DIR / "us_stocks_investable_themes_zh_tw_fast.xlsx",
     OUTPUT_DIR / "us_stocks_investable_themes.xlsx",
     OUTPUT_DIR / "us_stocks_subsectors_ai_zh_tw.xlsx",
@@ -138,4 +139,3 @@ def load_bundle_from_upload(uploaded_file: Any) -> DataBundle:
         loaded_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         source_sheet=sheet,
     )
-

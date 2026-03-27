@@ -484,6 +484,8 @@ def main() -> None:
 
     st.title("📈 美股清單與筆記系統")
     st.caption(f"資料來源：{b.source_name} | Hash：`{b.source_hash}` | 載入時間：{b.loaded_at}")
+    if "second_opinion_preview" in Path(b.source_name).name:
+        st.info("目前使用第二模型預覽版資料。原始 fast 檔仍保留不變，如果搜尋與分類體驗正常，再決定是否正式取代舊版。")
 
     with st.sidebar:
         st.subheader("資料與權限")
