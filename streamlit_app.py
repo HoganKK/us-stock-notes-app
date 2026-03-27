@@ -351,7 +351,8 @@ def _apply_filters(df: pd.DataFrame, f: dict) -> pd.DataFrame:
     if f.get("sectors"):
         out = out[out["sector"].isin(f["sectors"])]
     if f.get("subsectors"):
-        out = out[out["subsector"].isin(f["subsectors"])]
+        subsector_lists = out["subsector_alias_list"] if "subsector_alias_list" in out.columns else out["subsector"].astype(str).apply(lambda x: [x] if str(x).strip() else [])
+        out = out[subsector_lists.apply(lambda x: any(s in x for s in f["subsectors"]))]
     if f.get("exchanges"):
         out = out[out["exchange"].isin(f["exchanges"])]
     tags = f.get("ai_tags", []) or []
@@ -541,7 +542,17 @@ def main() -> None:
         st.markdown("---")
         st.subheader("篩選")
         all_sectors = sorted([x for x in df["sector"].fillna("").astype(str).unique().tolist() if x.strip()])
-        all_subsectors = sorted([x for x in df["subsector"].fillna("").astype(str).unique().tolist() if x.strip()])
+        subsector_pool = set()
+        if "subsector_alias_list" in df.columns:
+            for alias_list in df["subsector_alias_list"].tolist():
+                for item in alias_list:
+                    if str(item).strip():
+                        subsector_pool.add(str(item).strip())
+        else:
+            for item in df["subsector"].fillna("").astype(str).tolist():
+                if item.strip():
+                    subsector_pool.add(item.strip())
+        all_subsectors = sorted(subsector_pool)
         all_exchanges = sorted([x for x in df["exchange"].fillna("").astype(str).unique().tolist() if x.strip()])
         tag_pool = set()
         if "tags_list" in df.columns:

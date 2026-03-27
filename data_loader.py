@@ -98,6 +98,7 @@ def to_internal_schema(df: pd.DataFrame) -> pd.DataFrame:
     out["tags_aliases"] = out["tags_aliases"].where(out["tags_aliases"].astype(str).str.strip() != "", out["tags"])
     out["summary_aliases"] = out["summary_aliases"].where(out["summary_aliases"].astype(str).str.strip() != "", out["summary"])
 
+    out["subsector_alias_list"] = out["subsector_aliases"].map(_parse_tags)
     out["tags_list"] = out["tags_aliases"].map(_parse_tags)
     out["search_blob"] = (
         out["ticker"].astype(str)
