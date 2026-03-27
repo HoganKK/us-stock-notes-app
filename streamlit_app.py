@@ -688,110 +688,116 @@ def main() -> None:
                 st.dataframe(_safe_df_rows(notes, ["note_date", "impact", "event_title", "event_detail"]), use_container_width=True, hide_index=True)
 
     with tabs[1]:
-        st.subheader("RSS v2 新聞匯入")
-        default_kw = "美伊戰爭, 以伊戰爭, 中東衝突, 荷姆茲海峽, 石油, 天然氣, 有色金屬, 化肥, spacex, 腦機接口, 量子, gtc"
-        saved_kw = get_meta("rss_keywords", default_kw)
-        saved_feeds = get_meta("rss_feeds", "\n".join(DEFAULT_RSS_FEEDS))
-        kw_text = st.text_area("關鍵字（逗號分隔）", value=saved_kw, key="rss_kw")
-        feeds_text = st.text_area("RSS feeds（每行一個）", value=saved_feeds, height=120, key="rss_feeds")
-        s1, s2 = st.columns(2)
-        if s1.button("保存 RSS 設定", key="btn_save_rss_cfg"):
-            set_meta("rss_keywords", kw_text.strip())
-            set_meta("rss_feeds", feeds_text.strip())
-            st.success("已保存 RSS 設定")
-        if s2.button("保存並同步到 GitHub", key="btn_save_rss_cfg_sync", disabled=not _is_editor()):
-            set_meta("rss_keywords", kw_text.strip())
-            set_meta("rss_feeds", feeds_text.strip())
-            ok, msg = _sync_notes_to_github_now()
-            if ok:
-                st.success("已保存並同步到 GitHub")
-            else:
-                st.error(f"同步失敗：{msg}")
-        raw_keywords = [x.strip() for x in kw_text.split(",") if x.strip()]
-        feeds = [x.strip() for x in feeds_text.splitlines() if x.strip()]
-        lookback_for_refetch = int(st.session_state.get("rss_lookback", 48))
-        max_items_for_refetch = int(st.session_state.get("rss_max_items", 30))
-        custom = {r["keyword"]: r["expansions_list"] for r in list_keyword_synonyms() if r.get("enabled", True)}
-        expanded, kmap = expand_keywords(raw_keywords, custom_synonyms=custom)
-        st.caption(f"擴展關鍵字：{len(expanded)}（原始：{len(raw_keywords)}）")
-
-        unmapped = [k for k in raw_keywords if not kmap.get(k)]
-        with st.expander("查看/管理擴展關鍵字", expanded=False):
-            if unmapped:
-                st.warning(f"未映射關鍵字：{', '.join(unmapped)}")
-                if st.button("AI 補全未映射關鍵字並寫入字典"):
-                    added = 0
-                    last_err = ""
-                    for uk in unmapped[:10]:
-                        sug, err = _suggest_keyword_expansions_ai(uk, expanded)
-                        sug = _keep_english_like_terms(sug)
-                        if sug:
-                            upsert_keyword_synonym(uk, sug, True)
-                            added += 1
-                        elif err:
-                            last_err = err
-                    if added:
-                        # Save + immediate refetch so user does not need to click fetch again.
-                        custom2 = {r["keyword"]: r["expansions_list"] for r in list_keyword_synonyms() if r.get("enabled", True)}
-                        items2 = fetch_rss_items(raw_keywords, feeds, lookback_for_refetch, max_items_for_refetch, custom_synonyms=custom2)
-                        st.session_state["rss_items"] = [x.__dict__ for x in items2]
-                        st.success(f"已補全 {added} 個關鍵字，並已自動重抓 RSS。")
-                        st.rerun()
-                    else:
-                        st.error(f"目前無法補全：{last_err or '模型未回傳可用結果'}")
-            compact = st.checkbox("精簡顯示（每詞只顯示前 3 個）", value=True)
-            for kx, vals in kmap.items():
-                if not vals:
-                    continue
-                if compact:
-                    sv = vals[:3]
-                    more = len(vals) - len(sv)
-                    st.caption(f"{kx} -> {', '.join(sv)}" + (f" ... (+{more})" if more > 0 else ""))
-                else:
-                    st.caption(f"{kx} -> {', '.join(vals)}")
-
-        c1, c2, c3 = st.columns(3)
-        lookback = c1.number_input("回看小時", min_value=6, max_value=240, value=48, step=6, key="rss_lookback")
-        max_items = c2.number_input("最多新聞數", min_value=10, max_value=300, value=30, step=10, key="rss_max_items")
-        auto_ai = c3.checkbox("匯入後自動 AI 映射", value=True)
-        auto_daily = st.checkbox("每日自動抓 RSS（每天首次開站自動執行一次）", value=(str(get_meta("rss_daily_auto_enabled", "0")) == "1"))
-        set_meta("rss_daily_auto_enabled", "1" if auto_daily else "0")
-        st.caption(f"每日自動：{'開啟' if auto_daily else '關閉'} | 上次執行：{get_meta('rss_daily_last_run_date', '-')}")
-
-        ran, msg = _maybe_daily_auto_rss(raw_keywords, feeds, int(lookback), int(max_items), auto_ai, custom, df)
-        if ran:
-            st.success(f"今日自動抓取完成：{msg}")
-
-        d1, d2 = st.columns(2)
-        if d1.button("抓取 RSS"):
-            items = fetch_rss_items(raw_keywords, feeds, int(lookback), int(max_items), custom_synonyms=custom)
-            st.session_state["rss_items"] = [x.__dict__ for x in items]
-
-        rss_items = st.session_state.get("rss_items", [])
-        if rss_items:
-            rdf = pd.DataFrame(rss_items)
-            st.dataframe(_safe_df_rows(rdf.to_dict("records"), ["published_at", "source", "title", "title_zh_tw", "matched_keywords", "matched_expanded", "link"]), use_container_width=True, hide_index=True)
-            q = st.text_input("在已抓取新聞中搜尋（中英）", "")
-            rdf2 = rdf.copy()
-            if q.strip():
-                ql = q.strip().lower()
-                rdf2 = rdf2[rdf2["title"].astype(str).str.lower().str.contains(ql, na=False) | rdf2["title_zh_tw"].astype(str).str.lower().str.contains(ql, na=False)]
-            picks = st.multiselect("選擇要匯入的新聞", rdf2["title"].tolist(), default=rdf2["title"].tolist()[: min(20, len(rdf2))])
-            if d2.button("匯入選中新聞"):
-                imported, merged, skipped, mapped = _import_rss_rows(rdf2, picks, auto_ai, df, show_progress=True)
-                st.success(f"新增 {imported} / 合併 {merged} / 略過 {skipped} / AI 命中 {mapped}")
-                st.rerun()
-
-        st.subheader("現有時事事件")
+        st.subheader("時事事件筆記")
         events = list_macro_notes()
-        st.dataframe(_safe_df_rows(events, ["id", "note_date", "impact", "event_title", "source_url"]), use_container_width=True, hide_index=True)
-        if _is_editor() and events:
-            eid = st.selectbox("選擇事件 ID 套用 AI", [x["id"] for x in events])
-            if st.button("對選中事件跑 AI 映射"):
-                row = next(x for x in events if x["id"] == eid)
-                tc, hc = _run_ai_for_event(row, df)
-                st.success(f"主題 {tc} 個，命中 {hc} 筆")
-                st.rerun()
+        if not _is_editor():
+            st.warning("此頁需先登入編輯模式後才能使用 RSS 搜尋、抓取、匯入與 AI 映射，避免他人消耗你的 API。")
+            st.caption("目前為訪客模式，只提供既有事件只讀檢視。")
+            st.dataframe(_safe_df_rows(events, ["id", "note_date", "impact", "event_title", "source_url"]), use_container_width=True, hide_index=True)
+        else:
+            st.subheader("RSS v2 新聞匯入")
+            default_kw = "美伊戰爭, 以伊戰爭, 中東衝突, 荷姆茲海峽, 石油, 天然氣, 有色金屬, 化肥, spacex, 腦機接口, 量子, gtc"
+            saved_kw = get_meta("rss_keywords", default_kw)
+            saved_feeds = get_meta("rss_feeds", "\n".join(DEFAULT_RSS_FEEDS))
+            kw_text = st.text_area("關鍵字（逗號分隔）", value=saved_kw, key="rss_kw")
+            feeds_text = st.text_area("RSS feeds（每行一個）", value=saved_feeds, height=120, key="rss_feeds")
+            s1, s2 = st.columns(2)
+            if s1.button("保存 RSS 設定", key="btn_save_rss_cfg"):
+                set_meta("rss_keywords", kw_text.strip())
+                set_meta("rss_feeds", feeds_text.strip())
+                st.success("已保存 RSS 設定")
+            if s2.button("保存並同步到 GitHub", key="btn_save_rss_cfg_sync"):
+                set_meta("rss_keywords", kw_text.strip())
+                set_meta("rss_feeds", feeds_text.strip())
+                ok, msg = _sync_notes_to_github_now()
+                if ok:
+                    st.success("已保存並同步到 GitHub")
+                else:
+                    st.error(f"同步失敗：{msg}")
+            raw_keywords = [x.strip() for x in kw_text.split(",") if x.strip()]
+            feeds = [x.strip() for x in feeds_text.splitlines() if x.strip()]
+            lookback_for_refetch = int(st.session_state.get("rss_lookback", 48))
+            max_items_for_refetch = int(st.session_state.get("rss_max_items", 30))
+            custom = {r["keyword"]: r["expansions_list"] for r in list_keyword_synonyms() if r.get("enabled", True)}
+            expanded, kmap = expand_keywords(raw_keywords, custom_synonyms=custom)
+            st.caption(f"擴展關鍵字：{len(expanded)}（原始：{len(raw_keywords)}）")
+
+            unmapped = [k for k in raw_keywords if not kmap.get(k)]
+            with st.expander("查看/管理擴展關鍵字", expanded=False):
+                if unmapped:
+                    st.warning(f"未映射關鍵字：{', '.join(unmapped)}")
+                    if st.button("AI 補全未映射關鍵字並寫入字典"):
+                        added = 0
+                        last_err = ""
+                        for uk in unmapped[:10]:
+                            sug, err = _suggest_keyword_expansions_ai(uk, expanded)
+                            sug = _keep_english_like_terms(sug)
+                            if sug:
+                                upsert_keyword_synonym(uk, sug, True)
+                                added += 1
+                            elif err:
+                                last_err = err
+                        if added:
+                            # Save + immediate refetch so user does not need to click fetch again.
+                            custom2 = {r["keyword"]: r["expansions_list"] for r in list_keyword_synonyms() if r.get("enabled", True)}
+                            items2 = fetch_rss_items(raw_keywords, feeds, lookback_for_refetch, max_items_for_refetch, custom_synonyms=custom2)
+                            st.session_state["rss_items"] = [x.__dict__ for x in items2]
+                            st.success(f"已補全 {added} 個關鍵字，並已自動重抓 RSS。")
+                            st.rerun()
+                        else:
+                            st.error(f"目前無法補全：{last_err or '模型未回傳可用結果'}")
+                compact = st.checkbox("精簡顯示（每詞只顯示前 3 個）", value=True)
+                for kx, vals in kmap.items():
+                    if not vals:
+                        continue
+                    if compact:
+                        sv = vals[:3]
+                        more = len(vals) - len(sv)
+                        st.caption(f"{kx} -> {', '.join(sv)}" + (f" ... (+{more})" if more > 0 else ""))
+                    else:
+                        st.caption(f"{kx} -> {', '.join(vals)}")
+
+            c1, c2, c3 = st.columns(3)
+            lookback = c1.number_input("回看小時", min_value=6, max_value=240, value=48, step=6, key="rss_lookback")
+            max_items = c2.number_input("最多新聞數", min_value=10, max_value=300, value=30, step=10, key="rss_max_items")
+            auto_ai = c3.checkbox("匯入後自動 AI 映射", value=True)
+            auto_daily = st.checkbox("每日自動抓 RSS（每天首次開站自動執行一次）", value=(str(get_meta("rss_daily_auto_enabled", "0")) == "1"))
+            set_meta("rss_daily_auto_enabled", "1" if auto_daily else "0")
+            st.caption(f"每日自動：{'開啟' if auto_daily else '關閉'} | 上次執行：{get_meta('rss_daily_last_run_date', '-')}")
+
+            ran, msg = _maybe_daily_auto_rss(raw_keywords, feeds, int(lookback), int(max_items), auto_ai, custom, df)
+            if ran:
+                st.success(f"今日自動抓取完成：{msg}")
+
+            d1, d2 = st.columns(2)
+            if d1.button("抓取 RSS"):
+                items = fetch_rss_items(raw_keywords, feeds, int(lookback), int(max_items), custom_synonyms=custom)
+                st.session_state["rss_items"] = [x.__dict__ for x in items]
+
+            rss_items = st.session_state.get("rss_items", [])
+            if rss_items:
+                rdf = pd.DataFrame(rss_items)
+                st.dataframe(_safe_df_rows(rdf.to_dict("records"), ["published_at", "source", "title", "title_zh_tw", "matched_keywords", "matched_expanded", "link"]), use_container_width=True, hide_index=True)
+                q = st.text_input("在已抓取新聞中搜尋（中英）", "")
+                rdf2 = rdf.copy()
+                if q.strip():
+                    ql = q.strip().lower()
+                    rdf2 = rdf2[rdf2["title"].astype(str).str.lower().str.contains(ql, na=False) | rdf2["title_zh_tw"].astype(str).str.lower().str.contains(ql, na=False)]
+                picks = st.multiselect("選擇要匯入的新聞", rdf2["title"].tolist(), default=rdf2["title"].tolist()[: min(20, len(rdf2))])
+                if d2.button("匯入選中新聞"):
+                    imported, merged, skipped, mapped = _import_rss_rows(rdf2, picks, auto_ai, df, show_progress=True)
+                    st.success(f"新增 {imported} / 合併 {merged} / 略過 {skipped} / AI 命中 {mapped}")
+                    st.rerun()
+
+            st.subheader("現有時事事件")
+            st.dataframe(_safe_df_rows(events, ["id", "note_date", "impact", "event_title", "source_url"]), use_container_width=True, hide_index=True)
+            if events:
+                eid = st.selectbox("選擇事件 ID 套用 AI", [x["id"] for x in events])
+                if st.button("對選中事件跑 AI 映射"):
+                    row = next(x for x in events if x["id"] == eid)
+                    tc, hc = _run_ai_for_event(row, df)
+                    st.success(f"主題 {tc} 個，命中 {hc} 筆")
+                    st.rerun()
 
     with tabs[2]:
         st.subheader("時事主題（熱度排名）")
