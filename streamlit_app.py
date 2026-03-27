@@ -366,6 +366,46 @@ def _apply_filters(df: pd.DataFrame, f: dict) -> pd.DataFrame:
     return out
 
 
+def _default_filters() -> dict:
+    return {
+        "keyword": "",
+        "sectors": [],
+        "subsectors": [],
+        "exchanges": [],
+        "ai_tags": [],
+        "tag_mode": "any",
+    }
+
+
+def _build_filter_options(df: pd.DataFrame) -> tuple[list[str], list[str], list[str], list[str]]:
+    all_sectors = sorted([x for x in df["sector"].fillna("").astype(str).unique().tolist() if x.strip()])
+    subsector_pool = set()
+    if "subsector_alias_list" in df.columns:
+        for alias_list in df["subsector_alias_list"].tolist():
+            for item in alias_list:
+                if str(item).strip():
+                    subsector_pool.add(str(item).strip())
+    else:
+        for item in df["subsector"].fillna("").astype(str).tolist():
+            if item.strip():
+                subsector_pool.add(item.strip())
+    all_subsectors = sorted(subsector_pool)
+    all_exchanges = sorted([x for x in df["exchange"].fillna("").astype(str).unique().tolist() if x.strip()])
+    tag_pool = set()
+    if "tags_list" in df.columns:
+        for tag_list in df["tags_list"].tolist():
+            for tg in tag_list:
+                if str(tg).strip():
+                    tag_pool.add(str(tg).strip())
+    else:
+        for tx in df["tags"].fillna("").astype(str).tolist():
+            for tg in _split_tags(tx):
+                if str(tg).strip():
+                    tag_pool.add(str(tg).strip())
+    all_ai_tags = sorted(tag_pool)
+    return all_sectors, all_subsectors, all_exchanges, all_ai_tags
+
+
 def _import_rss_rows(
     rdf2: pd.DataFrame,
     picks: list[str],
@@ -491,27 +531,14 @@ def main() -> None:
         st.session_state["bundle"] = _load_default(str(expected_default))
         bundle_refreshed = True
     if "filters" not in st.session_state:
-        st.session_state["filters"] = {
-            "keyword": "",
-            "sectors": [],
-            "subsectors": [],
-            "exchanges": [],
-            "ai_tags": [],
-            "tag_mode": "any",
-        }
+        st.session_state["filters"] = _default_filters()
     elif bundle_refreshed:
-        st.session_state["filters"] = {
-            "keyword": "",
-            "sectors": [],
-            "subsectors": [],
-            "exchanges": [],
-            "ai_tags": [],
-            "tag_mode": "any",
-        }
+        st.session_state["filters"] = _default_filters()
 
     b: DataBundle = st.session_state["bundle"]
     set_meta("data_source_name", b.source_name)
     df = b.schema_df.copy()
+    all_sectors, all_subsectors, all_exchanges, all_ai_tags = _build_filter_options(df)
     filtered_df = _apply_filters(df, st.session_state["filters"])
 
     st.title("📈 美股清單與筆記系統")
@@ -539,45 +566,29 @@ def main() -> None:
             st.rerun()
         st.caption("你目前可編輯" if _is_editor() else "你目前為訪客只讀")
 
-        st.markdown("---")
-        st.subheader("篩選")
-        all_sectors = sorted([x for x in df["sector"].fillna("").astype(str).unique().tolist() if x.strip()])
-        subsector_pool = set()
-        if "subsector_alias_list" in df.columns:
-            for alias_list in df["subsector_alias_list"].tolist():
-                for item in alias_list:
-                    if str(item).strip():
-                        subsector_pool.add(str(item).strip())
-        else:
-            for item in df["subsector"].fillna("").astype(str).tolist():
-                if item.strip():
-                    subsector_pool.add(item.strip())
-        all_subsectors = sorted(subsector_pool)
-        all_exchanges = sorted([x for x in df["exchange"].fillna("").astype(str).unique().tolist() if x.strip()])
-        tag_pool = set()
-        if "tags_list" in df.columns:
-            for tag_list in df["tags_list"].tolist():
-                for tg in tag_list:
-                    tag_pool.add(tg)
-        else:
-            for tx in df["tags"].fillna("").astype(str).tolist():
-                for tg in _split_tags(tx):
-                    tag_pool.add(tg)
-        all_ai_tags = sorted(tag_pool)
+    tabs = st.tabs(["股票清單", "時事事件筆記", "時事主題", "字典/規則", "設定/同步"])
 
+    with tabs[0]:
+        st.subheader("股票篩選")
         f0 = st.session_state["filters"]
-        with st.form("sidebar_filter_form"):
-            fk = st.text_input("關鍵字搜尋（代號/公司/簡介/子板塊/標籤）", value=f0.get("keyword", ""))
-            fs = st.multiselect("大分類", all_sectors, default=[x for x in f0.get("sectors", []) if x in all_sectors])
-            fss = st.multiselect("最終子分類", all_subsectors, default=[x for x in f0.get("subsectors", []) if x in all_subsectors])
-            fe = st.multiselect("交易所", all_exchanges, default=[x for x in f0.get("exchanges", []) if x in all_exchanges])
-            ft = st.multiselect("AI 小分類標籤", all_ai_tags, default=[x for x in f0.get("ai_tags", []) if x in all_ai_tags])
-            fm = st.radio("標籤匹配模式", ["任一命中", "全部命中"], index=0 if f0.get("tag_mode", "any") == "any" else 1, horizontal=True)
-            c1, c2 = st.columns(2)
-            ap = c1.form_submit_button("套用篩選", use_container_width=True)
-            cl = c2.form_submit_button("清空篩選", use_container_width=True)
+        with st.form("stock_list_filter_form"):
+            row1 = st.columns([1.4, 1, 1])
+            fk = row1[0].text_input("關鍵字搜尋（代號/公司/簡介/子板塊/標籤）", value=f0.get("keyword", ""))
+            fs = row1[1].multiselect("大分類", all_sectors, default=[x for x in f0.get("sectors", []) if x in all_sectors])
+            fe = row1[2].multiselect("交易所", all_exchanges, default=[x for x in f0.get("exchanges", []) if x in all_exchanges])
+
+            row2 = st.columns(2)
+            fss = row2[0].multiselect("最終子分類", all_subsectors, default=[x for x in f0.get("subsectors", []) if x in all_subsectors])
+            ft = row2[1].multiselect("AI 小分類標籤", all_ai_tags, default=[x for x in f0.get("ai_tags", []) if x in all_ai_tags])
+
+            row3 = st.columns([1.2, 0.8, 0.8, 1.2])
+            fm = row3[0].radio("標籤匹配模式", ["任一命中", "全部命中"], index=0 if f0.get("tag_mode", "any") == "any" else 1, horizontal=True)
+            ap = row3[1].form_submit_button("套用篩選", use_container_width=True)
+            cl = row3[2].form_submit_button("清空篩選", use_container_width=True)
+            row3[3].caption(f"目前結果：{len(filtered_df):,} 筆")
+
             if cl:
-                st.session_state["filters"] = {"keyword": "", "sectors": [], "subsectors": [], "exchanges": [], "ai_tags": [], "tag_mode": "any"}
+                st.session_state["filters"] = _default_filters()
                 st.rerun()
             if ap:
                 st.session_state["filters"] = {
@@ -589,15 +600,21 @@ def main() -> None:
                     "tag_mode": "all" if fm == "全部命中" else "any",
                 }
                 st.rerun()
-        st.caption(f"篩選後筆數：{len(filtered_df):,}")
 
-    tabs = st.tabs(["股票清單", "時事事件筆記", "時事主題", "字典/規則", "設定/同步"])
-
-    with tabs[0]:
-        k = st.text_input("頁內搜尋（代號/公司/簡介/子板塊/標籤）", "")
         show = filtered_df.copy()
-        if k.strip():
-            show = show[show["search_blob"].str.contains(k.strip().lower(), na=False)]
+        active_parts = []
+        if f0.get("keyword"):
+            active_parts.append(f"關鍵字：{f0['keyword']}")
+        if f0.get("sectors"):
+            active_parts.append(f"大分類：{', '.join(f0['sectors'][:3])}" + ("..." if len(f0["sectors"]) > 3 else ""))
+        if f0.get("subsectors"):
+            active_parts.append(f"子分類：{', '.join(f0['subsectors'][:2])}" + ("..." if len(f0["subsectors"]) > 2 else ""))
+        if f0.get("exchanges"):
+            active_parts.append(f"交易所：{', '.join(f0['exchanges'])}")
+        if f0.get("ai_tags"):
+            active_parts.append(f"AI標籤：{', '.join(f0['ai_tags'][:3])}" + ("..." if len(f0["ai_tags"]) > 3 else ""))
+        st.caption("已套用篩選：" + " | ".join(active_parts) if active_parts else "目前未套用任何篩選。")
+
         st.dataframe(
             show[["ticker", "company_name", "exchange", "sector", "subsector", "tags", "summary"]].rename(
                 columns={"ticker": "代號", "company_name": "公司", "exchange": "交易所", "sector": "大分類", "subsector": "最終子分類", "tags": "AI標籤", "summary": "簡介"}
