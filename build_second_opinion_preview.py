@@ -14,6 +14,7 @@ DEFAULT_BASE = Path("E:/CHATGPT_CODEX/STOCK_NOTES/stock_fetcher/output/us_stocks
 DEFAULT_REVIEW = Path("E:/CHATGPT_CODEX/STOCK_NOTES/stock_fetcher/output/us_stocks_ai_review.xlsx")
 DEFAULT_OUTPUT = Path("E:/CHATGPT_CODEX/STOCK_NOTES/stock_fetcher/output/us_stocks_investable_themes_zh_tw_second_opinion_preview.xlsx")
 TARGET_SHEETS = ["全部股票", "可投資清單", "排除清單"]
+OPTICAL_COMM_KEYWORDS = ("光通訊", "光學通訊", "光纖通訊")
 TEXT_REPLACEMENTS = [
     ("用事業", "公用事業"),
     ("潔能源", "清潔能源"),
@@ -74,6 +75,25 @@ def _tags_to_display(value: Any) -> str:
     return "、".join(parts)
 
 
+def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def _prepend_tag(tags_display: str, alias: str) -> str:
+    parts = []
+    seen = set()
+    for item in [alias] + [x.strip() for x in str(tags_display or "").split("、")]:
+        tag = _norm_text(item)
+        if not tag:
+            continue
+        key = tag.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        parts.append(tag)
+    return "、".join(parts)
+
+
 def _build_review_map(review_df: pd.DataFrame) -> dict[str, dict[str, str]]:
     out: dict[str, dict[str, str]] = {}
     for _, row in review_df.fillna("").iterrows():
@@ -104,14 +124,29 @@ def _update_sheet(df: pd.DataFrame, review_map: dict[str, dict[str, str]], gener
         if not ticker or ticker not in review_map:
             continue
         rv = review_map[ticker]
-        if "大分類" in d.columns and rv["major_sector"]:
-            d.at[idx, "大分類"] = rv["major_sector"]
-        if "最終子分類" in d.columns and rv["subsector"]:
-            d.at[idx, "最終子分類"] = rv["subsector"]
-        if "AI小分類標籤" in d.columns and rv["tags_display"]:
-            d.at[idx, "AI小分類標籤"] = rv["tags_display"]
+        new_major = rv["major_sector"]
+        new_subsector = rv["subsector"]
+        new_tags = rv["tags_display"]
+        new_summary = rv["summary"]
+
+        original_blob = " ".join(
+            [
+                _norm_text(d.at[idx, "最終子分類"]) if "最終子分類" in d.columns else "",
+                _norm_text(d.at[idx, "AI小分類標籤"]) if "AI小分類標籤" in d.columns else "",
+                _norm_text(d.at[idx, "公司簡介(繁中)"]) if "公司簡介(繁中)" in d.columns else "",
+            ]
+        )
+        if _contains_any(original_blob, OPTICAL_COMM_KEYWORDS):
+            new_tags = _prepend_tag(new_tags, "光通訊")
+
+        if "大分類" in d.columns and new_major:
+            d.at[idx, "大分類"] = new_major
+        if "最終子分類" in d.columns and new_subsector:
+            d.at[idx, "最終子分類"] = new_subsector
+        if "AI小分類標籤" in d.columns and new_tags:
+            d.at[idx, "AI小分類標籤"] = new_tags
         if "公司簡介(繁中)" in d.columns and rv["summary"]:
-            d.at[idx, "公司簡介(繁中)"] = rv["summary"]
+            d.at[idx, "公司簡介(繁中)"] = new_summary
         updated_rows += 1
 
     d["第二模型模式"] = d["代號"].astype(str).str.upper().map(lambda x: review_map.get(x, {}).get("mode", ""))
