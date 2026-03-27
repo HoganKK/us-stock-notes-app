@@ -14,6 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 
 DEFAULT_INPUT_CANDIDATES = [
+    OUTPUT_DIR / "us_stocks_investable_themes_zh_tw_hybrid_search_preview.xlsx",
     OUTPUT_DIR / "us_stocks_investable_themes_zh_tw_second_opinion_preview.xlsx",
     OUTPUT_DIR / "us_stocks_investable_themes_zh_tw_fast.xlsx",
     OUTPUT_DIR / "us_stocks_investable_themes.xlsx",
@@ -86,11 +87,18 @@ def to_internal_schema(df: pd.DataFrame) -> pd.DataFrame:
     out["subsector"] = _coalesce(d, ["最終子分類", "final_subsector_zh_tw", "final_subsector", "子分類"])
     out["tags"] = _coalesce(d, ["AI小分類標籤", "ai_small_tags_zh_tw", "ai_small_tags"])
     out["summary"] = _coalesce(d, ["公司簡介(繁中)", "company_summary_zh_tw"])
+    out["subsector_aliases"] = _coalesce(d, ["搜尋別名最終子分類", "search_subsector_aliases"], default="").astype(str)
+    out["tags_aliases"] = _coalesce(d, ["搜尋別名AI標籤", "search_tag_aliases"], default="").astype(str)
+    out["summary_aliases"] = _coalesce(d, ["搜尋別名簡介", "search_summary_aliases"], default="").astype(str)
     out["generated_at"] = _coalesce(d, ["生成時間", "generated_at"])
     out["is_investable"] = _coalesce(d, ["是否可投資", "is_investable"])
     out["exclude_reason"] = _coalesce(d, ["排除原因", "exclude_reason"])
 
-    out["tags_list"] = out["tags"].map(_parse_tags)
+    out["subsector_aliases"] = out["subsector_aliases"].where(out["subsector_aliases"].astype(str).str.strip() != "", out["subsector"])
+    out["tags_aliases"] = out["tags_aliases"].where(out["tags_aliases"].astype(str).str.strip() != "", out["tags"])
+    out["summary_aliases"] = out["summary_aliases"].where(out["summary_aliases"].astype(str).str.strip() != "", out["summary"])
+
+    out["tags_list"] = out["tags_aliases"].map(_parse_tags)
     out["search_blob"] = (
         out["ticker"].astype(str)
         + " "
@@ -98,9 +106,15 @@ def to_internal_schema(df: pd.DataFrame) -> pd.DataFrame:
         + " "
         + out["summary"].astype(str)
         + " "
+        + out["summary_aliases"].astype(str)
+        + " "
         + out["subsector"].astype(str)
         + " "
+        + out["subsector_aliases"].astype(str)
+        + " "
         + out["tags"].astype(str)
+        + " "
+        + out["tags_aliases"].astype(str)
     ).str.lower()
     out = out.drop_duplicates(subset=["ticker"], keep="first").reset_index(drop=True)
     return out

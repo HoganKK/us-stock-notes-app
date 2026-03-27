@@ -357,10 +357,11 @@ def _apply_filters(df: pd.DataFrame, f: dict) -> pd.DataFrame:
     tags = f.get("ai_tags", []) or []
     if tags:
         mode = str(f.get("tag_mode", "any"))
+        tag_lists = out["tags_list"] if "tags_list" in out.columns else out["tags"].astype(str).apply(_split_tags)
         if mode == "all":
-            out = out[out["tags"].astype(str).apply(lambda x: all(t in _split_tags(x) for t in tags))]
+            out = out[tag_lists.apply(lambda x: all(t in x for t in tags))]
         else:
-            out = out[out["tags"].astype(str).apply(lambda x: any(t in _split_tags(x) for t in tags))]
+            out = out[tag_lists.apply(lambda x: any(t in x for t in tags))]
     return out
 
 
@@ -482,11 +483,22 @@ def _rebuild_all_theme_hits(df: pd.DataFrame) -> tuple[int, int]:
 def main() -> None:
     init_db()
     expected_default = Path(DEFAULT_INPUT_PATH)
+    bundle_refreshed = False
     if "bundle" not in st.session_state:
         st.session_state["bundle"] = _load_default(str(expected_default))
     elif _should_refresh_default_bundle(st.session_state["bundle"], expected_default):
         st.session_state["bundle"] = _load_default(str(expected_default))
+        bundle_refreshed = True
     if "filters" not in st.session_state:
+        st.session_state["filters"] = {
+            "keyword": "",
+            "sectors": [],
+            "subsectors": [],
+            "exchanges": [],
+            "ai_tags": [],
+            "tag_mode": "any",
+        }
+    elif bundle_refreshed:
         st.session_state["filters"] = {
             "keyword": "",
             "sectors": [],
@@ -503,7 +515,10 @@ def main() -> None:
 
     st.title("📈 美股清單與筆記系統")
     st.caption(f"資料來源：{b.source_name} | Hash：`{b.source_hash}` | 載入時間：{b.loaded_at}")
-    if "second_opinion_preview" in Path(b.source_name).name:
+    source_name = Path(b.source_name).name
+    if "hybrid_search_preview" in source_name:
+        st.info("目前使用 hybrid 預覽版資料：272 筆重構股直接採用新分類，其餘股票保留舊顯示並加入舊+新搜尋別名，提升搜尋命中率。")
+    elif "second_opinion_preview" in source_name:
         st.info("目前使用第二模型預覽版資料。原始 fast 檔仍保留不變，如果搜尋與分類體驗正常，再決定是否正式取代舊版。")
 
     with st.sidebar:
@@ -529,9 +544,14 @@ def main() -> None:
         all_subsectors = sorted([x for x in df["subsector"].fillna("").astype(str).unique().tolist() if x.strip()])
         all_exchanges = sorted([x for x in df["exchange"].fillna("").astype(str).unique().tolist() if x.strip()])
         tag_pool = set()
-        for tx in df["tags"].fillna("").astype(str).tolist():
-            for tg in _split_tags(tx):
-                tag_pool.add(tg)
+        if "tags_list" in df.columns:
+            for tag_list in df["tags_list"].tolist():
+                for tg in tag_list:
+                    tag_pool.add(tg)
+        else:
+            for tx in df["tags"].fillna("").astype(str).tolist():
+                for tg in _split_tags(tx):
+                    tag_pool.add(tg)
         all_ai_tags = sorted(tag_pool)
 
         f0 = st.session_state["filters"]
